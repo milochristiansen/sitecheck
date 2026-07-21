@@ -1,0 +1,14 @@
+# Generated site output (overwritten each run)
+output/
+
+# SQLite database
+data/
+
+# Binary
+sitecheck
+
+# Config
+.env
+
+# Design document
+PLAN.md
