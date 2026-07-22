@@ -1,5 +1,6 @@
 function meta()
     return {
+        skip        = true,
         name        = "Example DNS",
         description = "Checks DNS resolution for a known host",
     }

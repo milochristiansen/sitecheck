@@ -1,5 +1,6 @@
 function meta()
     return {
+        skip        = true,
         name        = "Example SSL",
         description = "Checks SSL certificate validity for a known host",
     }

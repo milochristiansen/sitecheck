@@ -1,5 +1,6 @@
 function meta()
     return {
+        skip        = true,
         name        = "Example Ping",
         description = "Pings 1.1.1.1 to measure latency and packet loss. Needs root.",
     }

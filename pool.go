@@ -60,6 +60,12 @@ func NewPool(n int, defaultTimeout int) *Pool {
 					fmt.Fprintf(os.Stderr, "  %-20s meta() error: %v\n", job.Slug, err)
 				}
 
+				// If the resource is marked as skipped, drop the job entirely.
+				if res.Skip {
+					fmt.Printf("  %-20s SKIP\n", job.Slug)
+					continue
+				}
+
 				result, err := RunCheck(l, res)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "  %-20s ERROR: %v\n", job.Slug, err)

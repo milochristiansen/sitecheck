@@ -1,5 +1,6 @@
 function meta()
     return {
+        skip        = true,
         name        = "SSH Daemon",
         description = "Checks that sshd.service is active and running",
     }

@@ -1,5 +1,6 @@
 function meta()
     return {
+        skip        = true,
         name        = "HTTP JSON Body",
         description = "Checks a JSON endpoint and displays the response body",
     }

@@ -1,5 +1,6 @@
 function meta()
     return {
+        skip        = true,
         name        = "Example TCP",
         description = "Checks TCP connectivity to a known port",
     }

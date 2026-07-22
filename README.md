@@ -9,6 +9,17 @@ The actual checks are Lua scripts. There are a set of functions you can call to 
 go over the results and annotate them with a pass/degraded/failed status based on whatever criteria you wish.
 
 
+## Building
+
+Go ahead and clone this repo and just `go build` in the root. From there you can simply run the resulting binary and
+everything should "just work".
+
+This is great for playing with the example resource check scripts, etc, but if you actually want to run this in
+production you will likely want to copy the binary, templates, and static files to somewhere else. From there you can
+set up a web server to serve the output files, whatever cron solution you want to use to schedule runs, and any other
+config you may need.
+
+
 ## Configuration
 
 Configuration is all done with environment variables. If there is a `.env` file in the current working directory,
@@ -43,13 +54,14 @@ Each `.lua` script in the resources directory is run as a check script. These sc
 ### `meta()` Values
 
 All fields in the meta-data table are optional. The name defaults to the base name of the resource check script file,
-and everything else defaults to an empty string.
+skip defaults to false, and everything else defaults to an empty string.
 
 
 ```lua
 {
     name        = "Example",
     description = "An example description",
+    skip        = false,
     notify      = {
         pass     = "<your ntfy topic>",
         degraded = "<your ntfy topic>",
@@ -57,6 +69,9 @@ and everything else defaults to an empty string.
     },
 }
 ```
+
+`skip`, if true, causes the script to be skipped as if it didn't exist. This is just here so I can ship a ton of example
+scripts without making you delete them all, and so that you can disable a script quickly and nondestructively if you like.
 
 The values in the `notify` table are topics for ntfy. If these are provided, when the state of the resource transitions
 from any state to the state the topic is for, there will be a message sent to the provided topic. Repeated occurrences
@@ -83,7 +98,7 @@ The following constants are provided to use when setting the `Pass` value in the
 | `tcp_connect(host, port, opts)`     | TCP connectivity check             |
 | `dns_lookup(host, opts)`            | DNS resolution                     |
 | `ssl_certificate(host, port, opts)` | TLS certificate inspection         |
-| `systemd_check(service, opts)`         | systemd service status check       |
+| `systemd_check(service, opts)`      | systemd service status check       |
 
 Each of these functions returns a native value with a meta table that allows Lua to read some of the fields. One of
 these return values **MUST** be returned from the `check()` function. You can return any of them, and you can even

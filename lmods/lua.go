@@ -90,10 +90,30 @@ func ReadStringField(l *lua.State, tableIdx int, key string, def string) string 
 	l.Push(key)
 	t := l.GetTableRaw(abs)
 	if t == lua.TypNil {
+		l.Pop(1)
 		return def
 	}
 	if t == lua.TypString || t == lua.TypNumber {
 		v := l.ToString(-1)
+		l.Pop(1)
+		return v
+	}
+	l.Pop(1)
+	return def
+}
+
+// ReadBoolField reads a boolean field from a Lua table at tableIdx, returning
+// the default if the field is absent or not a boolean.
+func ReadBoolField(l *lua.State, tableIdx int, key string, def bool) bool {
+	abs := l.AbsIndex(tableIdx)
+	l.Push(key)
+	t := l.GetTableRaw(abs)
+	if t == lua.TypNil {
+		l.Pop(1)
+		return def
+	}
+	if t == lua.TypBool {
+		v := l.ToBool(-1)
 		l.Pop(1)
 		return v
 	}

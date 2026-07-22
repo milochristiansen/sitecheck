@@ -1,5 +1,6 @@
 function meta()
     return {
+        skip        = true,
         name        = "Failing Check",
         description = "This check always fails (non-existent domain)",
     }

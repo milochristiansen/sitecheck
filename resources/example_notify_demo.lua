@@ -1,11 +1,12 @@
 function meta()
     return {
+        skip        = true,
         name        = "Notification Demo",
         description = "Hits a random status code endpoint to demo ntfy notifications",
         notify      = {
-            pass     = "siteCheckXYZZYtest",
-            degraded = "siteCheckXYZZYtest",
-            fail     = "siteCheckXYZZYtest",
+            pass     = "sitecheckChangeMePlz",
+            degraded = "sitecheckChangeMePlz",
+            fail     = "sitecheckChangeMePlz",
         },
     }
 end

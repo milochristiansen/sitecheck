@@ -1,5 +1,6 @@
 function meta()
     return {
+        skip        = true,
         name        = "Example Website",
         description = "Checks the main marketing site for 200 OK",
     }

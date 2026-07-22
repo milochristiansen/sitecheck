@@ -19,6 +19,7 @@ type Resource struct {
 	ScriptPath     string
 	Name           string
 	Desc           string
+	Skip           bool
 	NotifyPass     string
 	NotifyDegraded string
 	NotifyFail     string
@@ -97,6 +98,8 @@ func PopulateMeta(l *lua.State, res *Resource) error {
 		if desc != "" {
 			res.Desc = desc
 		}
+
+		res.Skip = lmods.ReadBoolField(l, -1, "skip", false)
 
 		// Read notify sub-table if present.
 		l.Push("notify")
