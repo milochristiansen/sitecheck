@@ -1,0 +1,53 @@
+
+{{define "content"}}
+<div class="summary-strip">
+    <span class="count up">{{.UpCount}} up</span>
+    <span class="count degraded">{{.DegradedCount}} degraded</span>
+    <span class="count down">{{.DownCount}} down</span>
+</div>
+
+<div class="resource-grid">
+{{range .Entries}}
+    <div class="card {{statusClass .Pass}}">
+        <div class="card-header">
+            <span class="status-dot {{statusClass .Pass}}"></span>
+            <h2><a href="resources/{{.Slug}}/">{{.Name}}</a></h2>
+            {{if .CheckType}}<span class="check-type">{{.CheckType}}</span>{{end}}
+        </div>
+        <div class="card-body">
+            {{if eq .Pass -1}}
+            <div class="no-data">No check data yet</div>
+            {{else}}
+            <div class="stat-row">
+                <span class="stat-label">Status</span>
+                <span class="stat-value {{statusClass .Pass}}">
+                    {{if eq .Pass 2}}PASS{{else if eq .Pass 1}}DEGRADED{{else}}FAIL{{end}}
+                </span>
+            </div>
+            {{if .FailReason}}
+            <div class="stat-row">
+                <span class="stat-label">Reason</span>
+                <span class="stat-value fail-reason">{{.FailReason}}</span>
+            </div>
+            {{end}}
+            <div class="stat-row">
+                <span class="stat-label">Response</span>
+                <span class="stat-value">{{formatDuration .ResponseMS}}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Uptime (24h)</span>
+                <span class="stat-value">{{formatPct .Uptime24h}}</span>
+            </div>
+            {{end}}
+        </div>
+        {{if .Sparkline}}
+        <div class="card-sparkline">{{.Sparkline}}</div>
+        {{end}}
+    </div>
+{{end}}
+</div>
+
+{{if not .Entries}}
+<div class="empty-state">No resources configured.</div>
+{{end}}
+{{end}}

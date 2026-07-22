@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -47,13 +48,14 @@ func (db *DB) Migrate() error {
 			pass            INTEGER NOT NULL,
 			response_time_ms REAL,
 			status_code     INTEGER,
-			url             TEXT NOT NULL,
 			body_size       INTEGER,
+			body            TEXT,
 			tls_version     TEXT,
 			remote_ip       TEXT,
 			redirect_count  INTEGER,
 			error           TEXT
 		)`,
+		`ALTER TABLE checks_http ADD COLUMN body TEXT`,
 		`CREATE INDEX IF NOT EXISTS idx_checks_http_slug_time ON checks_http(slug, timestamp)`,
 
 		`CREATE TABLE IF NOT EXISTS checks_ping (
@@ -121,6 +123,10 @@ func (db *DB) Migrate() error {
 
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {
+			// Ignore "duplicate column" errors from ALTER TABLE migrations.
+			if strings.Contains(err.Error(), "duplicate column") {
+				continue
+			}
 			return fmt.Errorf("migrate: %w\n%s", err, m)
 		}
 	}

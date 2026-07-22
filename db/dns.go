@@ -1,6 +1,9 @@
 package db
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // DNSCheck holds a single row from checks_dns.
 type DNSCheck struct {
@@ -50,6 +53,33 @@ func DNSChecksBySlug(db *DB, slug string) ([]DNSCheck, error) {
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan dns check: %w", err)
+		}
+		checks = append(checks, c)
+	}
+	return checks, rows.Err()
+}
+
+// DNSChecksBySlugSince returns DNS checks for a slug since the given time, oldest first.
+func DNSChecksBySlugSince(db *DB, slug string, since time.Time) ([]DNSCheck, error) {
+	sinceStr := since.UTC().Format("2006-01-02 15:04:05")
+	rows, err := db.Query(
+		`SELECT id, slug, timestamp, duration_ms, pass, response_time_ms,
+			host, ips, error
+		FROM checks_dns WHERE slug = ? AND timestamp >= ? ORDER BY timestamp`, slug, sinceStr,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query dns checks since: %w", err)
+	}
+	defer rows.Close()
+
+	var checks []DNSCheck
+	for rows.Next() {
+		var c DNSCheck
+		err := rows.Scan(&c.ID, &c.Slug, &c.Timestamp, &c.DurationMS, &c.Pass,
+			&c.ResponseTimeMS, &c.Host, &c.IPs, &c.Error,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan dns check since: %w", err)
 		}
 		checks = append(checks, c)
 	}

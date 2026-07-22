@@ -1,0 +1,230 @@
+
+{{define "content"}}
+<nav class="breadcrumb">
+    <a href="../../index.html">&larr; Overview</a>
+</nav>
+
+<div class="resource-detail">
+    <div class="detail-header">
+        <div class="status-banner {{statusClass .Pass}}">
+            <span class="status-dot {{statusClass .Pass}}"></span>
+            <span class="status-text">
+                {{if eq .Pass 2}}PASS{{else if eq .Pass 1}}DEGRADED{{else}}FAIL{{end}}
+            </span>
+        </div>
+        <div class="detail-title">
+            <h1>{{.Name}}</h1>
+            {{if .Description}}<p class="description">{{.Description}}</p>{{end}}
+            <span class="check-type">{{.CheckType}}</span>
+        </div>
+        {{if .FailReason}}
+        <div class="fail-reason-banner">
+            <strong>Reason:</strong> {{.FailReason}}
+        </div>
+        {{end}}
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span class="stat-value">{{formatPct .Uptime24h}}</span>
+            <span class="stat-label">Uptime 24h</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatPct .Uptime7d}}</span>
+            <span class="stat-label">Uptime 7d</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatPct .Uptime30d}}</span>
+            <span class="stat-label">Uptime 30d</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatDuration .AvgResponseMS}}</span>
+            <span class="stat-label">Avg Response</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatDuration .MinResponseMS}}</span>
+            <span class="stat-label">Min Response</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatDuration .MaxResponseMS}}</span>
+            <span class="stat-label">Max Response</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{.TotalChecks}}</span>
+            <span class="stat-label">Total Checks</span>
+        </div>
+    </div>
+
+    {{if .Charts}}
+    <section class="charts-section">
+        <h2>Response Time</h2>
+        <div class="chart-tabs">
+            {{range .GraphWindows}}
+            {{$w := .}}
+            {{if index $.Charts $w}}
+            <div class="chart-panel" id="chart-{{$w}}h">
+                <h3>Last {{$w}}h</h3>
+                {{index $.Charts $w}}
+            </div>
+            {{end}}
+            {{end}}
+        </div>
+    </section>
+    {{end}}
+
+    <section class="latest-check">
+        <h2>Latest Check</h2>
+        {{if .LatestCheck}}
+        {{if eq .CheckType "http"}}
+            {{template "check_http_body" .LatestCheck}}
+        {{else if eq .CheckType "ping"}}
+            {{template "check_ping_body" .LatestCheck}}
+        {{else if eq .CheckType "tcp"}}
+            {{template "check_tcp_body" .LatestCheck}}
+        {{else if eq .CheckType "dns"}}
+            {{template "check_dns_body" .LatestCheck}}
+        {{else if eq .CheckType "ssl"}}
+            {{template "check_ssl_body" .LatestCheck}}
+        {{end}}
+        {{else}}
+        <p class="no-data">No check data available.</p>
+        {{end}}
+    </section>
+
+    {{if .RecentChecks}}
+    <section class="recent-checks">
+        <h2>Recent Checks</h2>
+        {{if eq .CheckType "http"}}
+            {{range .RecentChecks}}
+                {{template "check_http_row" .}}
+            {{end}}
+        {{else if eq .CheckType "ping"}}
+            {{range .RecentChecks}}
+                {{template "check_ping_row" .}}
+            {{end}}
+        {{else if eq .CheckType "tcp"}}
+            {{range .RecentChecks}}
+                {{template "check_tcp_row" .}}
+            {{end}}
+        {{else if eq .CheckType "dns"}}
+            {{range .RecentChecks}}
+                {{template "check_dns_row" .}}
+            {{end}}
+        {{else if eq .CheckType "ssl"}}
+            {{range .RecentChecks}}
+                {{template "check_ssl_row" .}}
+            {{end}}
+        {{end}}
+    </section>
+    {{end}}
+</div>
+{{end}}
+
+{{/* ── HTTP row ──────────────────────────────────────────────────────── */}}
+{{define "check_http_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{.StatusCode}} — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_http_body" .}}
+</details>
+{{end}}
+
+{{define "check_ping_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{formatPct .PacketLossPct}} loss — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_ping_body" .}}
+</details>
+{{end}}
+
+{{/* ── TCP row ───────────────────────────────────────────────────────── */}}
+{{define "check_tcp_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{.Host}}:{{.Port}} — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_tcp_body" .}}
+</details>
+{{end}}
+
+{{/* ── DNS row ───────────────────────────────────────────────────────── */}}
+{{define "check_dns_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{.Host}} — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_dns_body" .}}
+</details>
+{{end}}
+
+{{/* ── SSL row ───────────────────────────────────────────────────────── */}}
+{{define "check_ssl_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{.Host}}:{{.Port}} — {{.DaysRemaining}}d left</summary>
+    {{template "check_ssl_body" .}}
+</details>
+{{end}}
+
+{{/* ── HTTP body ─────────────────────────────────────────────────────── */}}
+{{define "check_http_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">URL</span><span class="v">{{.URL}}</span></div>
+    <div class="field"><span class="k">Status Code</span><span class="v">{{.StatusCode}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Body Size</span><span class="v">{{if .BodySize}}{{.BodySize}} bytes{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">TLS Version</span><span class="v">{{if .TLSVersion}}{{.TLSVersion}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Remote IP</span><span class="v">{{if .RemoteIP}}{{.RemoteIP}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Redirects</span><span class="v">{{.RedirectCount}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{if .Body}}<pre class="http-body">{{.Body}}</pre>{{end}}
+{{end}}
+
+{{/* ── Ping body ─────────────────────────────────────────────────────── */}}
+{{define "check_ping_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Host</span><span class="v">{{.Host}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Packets Sent</span><span class="v">{{.PacketsSent}}</span></div>
+    <div class="field"><span class="k">Packets Received</span><span class="v">{{.PacketsReceived}}</span></div>
+    <div class="field"><span class="k">Packet Loss</span><span class="v">{{formatPct .PacketLossPct}}</span></div>
+    <div class="field"><span class="k">Min</span><span class="v">{{formatDuration .MinMS}}</span></div>
+    <div class="field"><span class="k">Max</span><span class="v">{{formatDuration .MaxMS}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{/* ── TCP body ──────────────────────────────────────────────────────── */}}
+{{define "check_tcp_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Host</span><span class="v">{{.Host}}</span></div>
+    <div class="field"><span class="k">Port</span><span class="v">{{.Port}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Remote IP</span><span class="v">{{if .RemoteIP}}{{.RemoteIP}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{/* ── DNS body ──────────────────────────────────────────────────────── */}}
+{{define "check_dns_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Host</span><span class="v">{{.Host}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">IPs</span><span class="v">{{if .IPs}}{{.IPs}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{/* ── SSL body ──────────────────────────────────────────────────────── */}}
+{{define "check_ssl_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Host</span><span class="v">{{.Host}}</span></div>
+    <div class="field"><span class="k">Port</span><span class="v">{{.Port}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Subject</span><span class="v">{{if .Subject}}{{.Subject}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Issuer</span><span class="v">{{if .Issuer}}{{.Issuer}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Not Before</span><span class="v">{{if .NotBefore}}{{.NotBefore}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Not After</span><span class="v">{{if .NotAfter}}{{.NotAfter}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Days Remaining</span><span class="v {{if lt .DaysRemaining 30}}warn{{end}}">{{.DaysRemaining}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}
