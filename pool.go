@@ -30,7 +30,7 @@ type Pool struct {
 func NewPool(n int, defaultTimeout int) *Pool {
 	p := &Pool{
 		jobs:           make(chan Job),
-		results:        make(chan Result, n*2),
+		results:        make(chan Result),
 		defaultTimeout: defaultTimeout,
 	}
 

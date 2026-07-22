@@ -53,16 +53,20 @@ func main() {
 	pool := NewPool(cfg.Workers, cfg.DefaultTimeout)
 
 	fmt.Printf("Running %d check(s) with %d worker(s)...\n", len(resources), cfg.Workers)
-	for _, res := range resources {
-		pool.Submit(Job{
-			ScriptPath: res.ScriptPath,
-			Slug:       res.Slug,
-		})
-	}
-	pool.Wait()
 
-	// Single-threaded collector drains results, writes to DB — no contention.
+	// Submit jobs and close pool
 	var results []Result
+	go func() {
+		for _, res := range resources {
+			pool.Submit(Job{
+				ScriptPath: res.ScriptPath,
+				Slug:       res.Slug,
+			})
+		}
+		pool.Wait()
+	}()
+
+	// Collect results.
 	for result := range pool.Results() {
 		if result.Raw == nil {
 			fmt.Fprintf(os.Stderr, "  %-20s SKIP: %v\n", result.Slug, result.Err)
