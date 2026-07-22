@@ -95,6 +95,24 @@ type SSLResult struct {
 	Error          string
 }
 
+// SystemdResult holds the outcome of a systemd service check.
+type SystemdResult struct {
+	Pass           int
+	FailReason     string
+	ServiceName    string
+	ActiveState    string
+	SubState       string
+	LoadState      string
+	MainPID        int
+	ResponseTimeMS float64
+	Error          string
+}
+
+func (r SystemdResult) CheckType() string       { return "systemd" }
+func (r SystemdResult) CheckPass() int          { return r.Pass }
+func (r SystemdResult) CheckFailReason() string  { return r.FailReason }
+func (r SystemdResult) CheckResponseMS() float64 { return r.ResponseTimeMS }
+
 func (r SSLResult) CheckType() string       { return "ssl" }
 func (r SSLResult) CheckPass() int          { return r.Pass }
 func (r SSLResult) CheckFailReason() string  { return r.FailReason }

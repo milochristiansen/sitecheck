@@ -83,6 +83,7 @@ The following constants are provided to use when setting the `Pass` value in the
 | `tcp_connect(host, port, opts)`     | TCP connectivity check             |
 | `dns_lookup(host, opts)`            | DNS resolution                     |
 | `ssl_certificate(host, port, opts)` | TLS certificate inspection         |
+| `systemd_check(service, opts)`         | systemd service status check       |
 
 Each of these functions returns a native value with a meta table that allows Lua to read some of the fields. One of
 these return values **MUST** be returned from the `check()` function. You can return any of them, and you can even
@@ -212,6 +213,29 @@ Returns:
 | `DaysRemaining`  | int    | days until expiry             |
 | `ResponseTimeMS` | float  | milliseconds                  |
 | `Error`          | string | error message                 |
+
+
+
+**`systemd_check(service, opts)`**
+
+Query a systemd service's status via D-Bus. Requires a systemd-based Linux host and D-Bus access
+(read-only unit status is available to unprivileged users on most distributions).
+
+| Option    | Type   | Default        | Notes                         |
+|-----------|--------|----------------|-------------------------------|
+| `timeout` | number | config default | D-Bus call timeout in seconds |
+
+Returns:
+
+| Field            | Type   | Notes                                                        |
+|------------------|--------|--------------------------------------------------------------|
+| `ServiceName`    | string | unit name (e.g. `nginx.service`)                             |
+| `ActiveState`    | string | `active`, `inactive`, `failed`, `activating`, `deactivating` |
+| `SubState`       | string | `running`, `dead`, `exited`, `auto-restart`, etc.            |
+| `LoadState`      | string | `loaded`, `not-found`, `masked`, etc.                        |
+| `MainPID`        | int    | main process PID (0 if none)                                 |
+| `ResponseTimeMS` | float  | milliseconds                                                 |
+| `Error`          | string | error message (D-Bus or unit lookup failure)                 |
 
 
 ## Generated Site

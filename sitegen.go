@@ -270,6 +270,13 @@ func extractCheckDetails(history interface{}) (latest interface{}, recent interf
 		latest = &h[len(h)-1]
 		reversed, n := reverseSkipFirst(h)
 		return latest, reversed, n
+	case []db.SystemdCheck:
+		if len(h) == 0 {
+			return nil, nil, 0
+		}
+		latest = &h[len(h)-1]
+		reversed, n := reverseSkipFirst(h)
+		return latest, reversed, n
 	}
 	return nil, nil, 0
 }

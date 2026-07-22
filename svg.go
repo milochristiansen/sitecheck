@@ -49,6 +49,12 @@ func extractPoints(history interface{}) []checkPoint {
 			pts[i] = checkPoint{c.Pass, c.ResponseTimeMS, c.Timestamp}
 		}
 		return pts
+	case []db.SystemdCheck:
+		pts := make([]checkPoint, len(h))
+		for i, c := range h {
+			pts[i] = checkPoint{c.Pass, c.ResponseTimeMS, c.Timestamp}
+		}
+		return pts
 	}
 	return nil
 }

@@ -162,7 +162,7 @@ func RunCheck(l *lua.State, res Resource) (Result, error) {
 	// Validate: the type-switch itself confirms we have a known result type.
 	switch raw.(type) {
 	case *lmods.HTTPResult, *lmods.PingResult, *lmods.TCPResult,
-		*lmods.DNSResult, *lmods.SSLResult:
+		*lmods.DNSResult, *lmods.SSLResult, *lmods.SystemdResult:
 	default:
 		return Result{
 			Slug:           res.Slug,
@@ -201,6 +201,8 @@ func InsertTypedCheck(database *db.DB, result Result) error {
 		return insertDNS(database, result.Slug, result.Elapsed, v)
 	case *lmods.SSLResult:
 		return insertSSL(database, result.Slug, result.Elapsed, v)
+	case *lmods.SystemdResult:
+		return insertSystemd(database, result.Slug, result.Elapsed, v)
 	default:
 		if result.Err != "" {
 			return fmt.Errorf("%s: %s", result.Slug, result.Err)
@@ -302,6 +304,23 @@ func insertSSL(database *db.DB, slug string, elapsed time.Duration, r *lmods.SSL
 		Error:          r.Error,
 	}
 	_, err := db.InsertSSLCheck(database, c)
+	return err
+}
+
+func insertSystemd(database *db.DB, slug string, elapsed time.Duration, r *lmods.SystemdResult) error {
+	c := db.SystemdCheck{
+		Slug:           slug,
+		DurationMS:     elapsed.Milliseconds(),
+		Pass:           r.Pass,
+		ResponseTimeMS: r.ResponseTimeMS,
+		ServiceName:    r.ServiceName,
+		ActiveState:    r.ActiveState,
+		SubState:       r.SubState,
+		LoadState:      r.LoadState,
+		MainPID:        r.MainPID,
+		Error:          r.Error,
+	}
+	_, err := db.InsertSystemdCheck(database, c)
 	return err
 }
 

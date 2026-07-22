@@ -183,6 +183,13 @@ func queryTypedHistory(database *db.DB, slug, checkType string, since time.Time)
 			return []db.SSLCheck(nil)
 		}
 		return h
+	case "systemd":
+		h, err := db.SystemdChecksBySlugSince(database, slug, since)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
+			return []db.SystemdCheck(nil)
+		}
+		return h
 	default:
 		return nil
 	}

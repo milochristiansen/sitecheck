@@ -51,6 +51,7 @@ func NewState(defaultTimeout int) (*lua.State, error) {
 		registerTCP(l, defaultTimeout)
 		registerDNS(l, defaultTimeout)
 		registerSSL(l, defaultTimeout)
+		registerSystemd(l, defaultTimeout)
 	})
 
 	return l, err

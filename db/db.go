@@ -120,6 +120,22 @@ func (db *DB) Migrate() error {
 			error           TEXT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_checks_ssl_slug_time ON checks_ssl(slug, timestamp)`,
+
+		`CREATE TABLE IF NOT EXISTS checks_systemd (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			slug            TEXT NOT NULL,
+			timestamp       TEXT DEFAULT (datetime('now')),
+			duration_ms     INTEGER,
+			pass            INTEGER NOT NULL,
+			response_time_ms REAL,
+			service_name    TEXT NOT NULL,
+			active_state    TEXT,
+			sub_state       TEXT,
+			load_state      TEXT,
+			main_pid        INTEGER,
+			error           TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_checks_systemd_slug_time ON checks_systemd(slug, timestamp)`,
 	}
 
 	for _, m := range migrations {
