@@ -58,7 +58,7 @@ and everything else defaults to an empty string.
 }
 ```
 
-The keys in the `notify` table are topics for ntfy. If these are provided, when the state of the resource transitions
+The values in the `notify` table are topics for ntfy. If these are provided, when the state of the resource transitions
 from any state to the state the topic is for, there will be a message sent to the provided topic. Repeated occurrences
 of the same state do not trigger notifications.
 
@@ -232,4 +232,4 @@ Serve `output/` with any static file server. Everything should work if you just 
 
 Check results are stored in SQLite (`data/sitecheck.db` by default). Old rows are purged automatically based on
 `SITECHECK_RETENTION_DAYS` (default 90). You can safely ignore this pretty much always. It only exists because I have to
-store historical data somewhere tho make the graphs and stuff work.
+store historical data somewhere to make the graphs and stuff work.
