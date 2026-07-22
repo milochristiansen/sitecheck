@@ -66,10 +66,17 @@ func main() {
 	for result := range pool.Results() {
 		if result.Raw == nil {
 			fmt.Fprintf(os.Stderr, "  %-20s SKIP: %v\n", result.Slug, result.Err)
-		} else if err := InsertTypedCheck(database, result); err != nil {
-			fmt.Fprintf(os.Stderr, "  %-20s DB ERROR: %v\n", result.Slug, err)
 		} else {
-			fmt.Printf("  %-20s type=%-6s %s %s\n", result.Slug, checkType(result), checkPassName(result), result.Elapsed.Round(1_000_000))
+			cr := result.Raw.(lmods.CheckResult)
+			currentPass := cr.CheckPass()
+			prevPass, hasPrev, _ := database.LastPass(result.Slug, cr.CheckType())
+
+			if err := InsertTypedCheck(database, result); err != nil {
+				fmt.Fprintf(os.Stderr, "  %-20s DB ERROR: %v\n", result.Slug, err)
+			} else {
+				fmt.Printf("  %-20s type=%-6s %s %s\n", result.Slug, checkType(result), checkPassName(result), result.Elapsed.Round(1_000_000))
+				notifyStatusChange(cfg.NtfyServer, result, currentPass, prevPass, hasPrev)
+			}
 		}
 		results = append(results, result)
 	}

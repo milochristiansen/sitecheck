@@ -17,12 +17,12 @@ func registerPing(l *lua.State, defaultTimeout int) {
 
 		count := 3
 		timeout := defaultTimeout
-		privileged := false
+		privileged := true
 
 		if !l.IsNil(2) && l.TypeOf(2) == lua.TypTable {
 			count = readIntOpt(l, 2, "count", 3)
 			timeout = readIntOpt(l, 2, "timeout", defaultTimeout)
-			privileged = readBoolOpt(l, 2, "privileged", false)
+			privileged = readBoolOpt(l, 2, "privileged", true)
 		}
 
 		r := &PingResult{
@@ -38,16 +38,16 @@ func registerPing(l *lua.State, defaultTimeout int) {
 			return 1
 		}
 
-		var target net.IPAddr
+		var target net.UDPAddr
 		var useIPv6 bool
 		for _, ip := range ips {
 			if ip.To4() != nil {
-				target = net.IPAddr{IP: ip}
+				target = net.UDPAddr{IP: ip}
 				useIPv6 = false
 				break
 			}
 			if target.IP == nil && ip.To16() != nil {
-				target = net.IPAddr{IP: ip}
+				target = net.UDPAddr{IP: ip}
 				useIPv6 = true
 			}
 		}

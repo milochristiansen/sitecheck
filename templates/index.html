@@ -11,12 +11,13 @@
     <div class="card {{statusClass .Pass}}">
         <div class="card-header">
             <span class="status-dot {{statusClass .Pass}}"></span>
-            <h2><a href="resources/{{.Slug}}/">{{.Name}}</a></h2>
+            <h2><a href="resources/{{.Slug}}.html">{{.Name}}</a></h2>
             {{if .CheckType}}<span class="check-type">{{.CheckType}}</span>{{end}}
         </div>
         <div class="card-body">
             {{if eq .Pass -1}}
-            <div class="no-data">No check data yet</div>
+            <div class="no-data">Check error</div>
+            {{if .FailReason}}<div class="stat-row"><span class="stat-value error">{{.FailReason}}</span></div>{{end}}
             {{else}}
             <div class="stat-row">
                 <span class="stat-label">Status</span>

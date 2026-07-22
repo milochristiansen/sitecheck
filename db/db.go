@@ -133,6 +133,37 @@ func (db *DB) Migrate() error {
 	return nil
 }
 
+// LastPass returns the pass value from the most recent check for the given slug
+// in the check table for checkType. Returns (0, false, nil) when no prior check exists.
+func (db *DB) LastPass(slug, checkType string) (int, bool, error) {
+	table, ok := checkTable(checkType)
+	if !ok {
+		return 0, false, fmt.Errorf("unknown check type %q", checkType)
+	}
+	var pass int
+	err := db.QueryRow(
+		`SELECT pass FROM `+table+` WHERE slug = ? ORDER BY timestamp DESC LIMIT 1`,
+		slug,
+	).Scan(&pass)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("last pass for %s/%s: %w", slug, checkType, err)
+	}
+	return pass, true, nil
+}
+
+// checkTable maps a short check type to its SQL table name.
+func checkTable(checkType string) (string, bool) {
+	switch checkType {
+	case "http", "ping", "tcp", "dns", "ssl":
+		return "checks_" + checkType, true
+	default:
+		return "", false
+	}
+}
+
 // PurgeOld deletes rows older than retentionDays across all check tables.
 func (db *DB) PurgeOld(retentionDays int) error {
 	cutoff := time.Now().AddDate(0, 0, -retentionDays).UTC().Format("2006-01-02 15:04:05")

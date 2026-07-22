@@ -59,6 +59,8 @@ func statusClass(pass int) string {
 		return "pass"
 	case 1:
 		return "degraded"
+	case -1:
+		return "error"
 	default:
 		return "fail"
 	}

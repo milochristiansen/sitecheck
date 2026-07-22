@@ -1,10 +1,29 @@
 
 {{define "content"}}
 <nav class="breadcrumb">
-    <a href="../../index.html">&larr; Overview</a>
+    <a href="../index.html">&larr; Overview</a>
 </nav>
 
 <div class="resource-detail">
+    {{if eq .Pass -1}}
+    <div class="detail-header">
+        <div class="status-banner error">
+            <span class="status-dot error"></span>
+            <span class="status-text">ERROR</span>
+        </div>
+        <div class="detail-title">
+            <h1>{{.Name}}</h1>
+            {{if .Description}}<p class="description">{{.Description}}</p>{{end}}
+        </div>
+        {{if .FailReason}}
+        <div class="fail-reason-banner">
+            <strong>Error:</strong> {{.FailReason}}
+        </div>
+        {{end}}
+    </div>
+
+    <p class="no-data">Check execution failed. No data available.</p>
+    {{else}}
     <div class="detail-header">
         <div class="status-banner {{statusClass .Pass}}">
             <span class="status-dot {{statusClass .Pass}}"></span>
@@ -116,6 +135,7 @@
             {{end}}
         {{end}}
     </section>
+    {{end}}
     {{end}}
 </div>
 {{end}}

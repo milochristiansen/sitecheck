@@ -155,6 +155,8 @@ func buildCards(results []Result) []ResourceCard {
 			card.Pass = cr.CheckPass()
 			card.FailReason = cr.CheckFailReason()
 			card.ResponseMS = cr.CheckResponseMS()
+		} else if r.Err != "" {
+			card.FailReason = r.Err
 		}
 
 		pts := extractPoints(r.History)
@@ -188,7 +190,7 @@ func buildResourcePage(cfg *Config, r Result) ResourcePage {
 		Title:        r.Name + " — " + cfg.SiteTitle,
 		SiteTitle:    cfg.SiteTitle,
 		Generated:    time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
-		StaticPrefix: "../../static/",
+		StaticPrefix: "../static/",
 		Slug:         r.Slug,
 		Name:         r.Name,
 		Description:  r.Desc,
@@ -200,6 +202,9 @@ func buildResourcePage(cfg *Config, r Result) ResourcePage {
 		page.Pass = cr.CheckPass()
 		page.FailReason = cr.CheckFailReason()
 		page.ResponseMS = cr.CheckResponseMS()
+	} else {
+		page.Pass = -1
+		page.FailReason = r.Err
 	}
 
 	pts := extractPoints(r.History)
@@ -288,12 +293,11 @@ func reverseSkipFirst[S ~[]E, E any](s S) (S, int) {
 
 // writeDetailPage renders a single resource detail page to disk.
 func writeDetailPage(tmpl *template.Template, resourcesDir string, page ResourcePage) error {
-	slugDir := filepath.Join(resourcesDir, page.Slug)
-	if err := os.MkdirAll(slugDir, 0o755); err != nil {
-		return fmt.Errorf("create dir %s: %w", slugDir, err)
+	if err := os.MkdirAll(resourcesDir, 0o755); err != nil {
+		return fmt.Errorf("create dir %s: %w", resourcesDir, err)
 	}
 
-	outPath := filepath.Join(slugDir, "index.html")
+	outPath := filepath.Join(resourcesDir, page.Slug+".html")
 	f, err := os.Create(outPath)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", outPath, err)

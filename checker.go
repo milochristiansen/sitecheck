@@ -15,23 +15,29 @@ import (
 
 // Resource represents a single check script discovered in the resources directory.
 type Resource struct {
-	Slug       string
-	ScriptPath string
-	Name       string
-	Desc       string
+	Slug           string
+	ScriptPath     string
+	Name           string
+	Desc           string
+	NotifyPass     string
+	NotifyDegraded string
+	NotifyFail     string
 }
 
 // Result holds the outcome of a single check execution.
 // Raw carries the typed result struct (e.g. *lmods.HTTPResult) on success;
 // Err is non-empty when check() itself failed before producing a typed result.
 type Result struct {
-	Slug    string
-	Name    string
-	Desc    string
-	Raw     interface{}
-	Err     string
-	Elapsed time.Duration
-	History interface{} // typed DB check slice, populated by collector
+	Slug           string
+	Name           string
+	Desc           string
+	Raw            interface{}
+	Err            string
+	Elapsed        time.Duration
+	History        interface{} // typed DB check slice, populated by collector
+	NotifyPass     string
+	NotifyDegraded string
+	NotifyFail     string
 }
 
 // ScanResources finds all .lua files in dir and returns Resources with slugs
@@ -65,7 +71,6 @@ func ScanResources(dir string) ([]Resource, error) {
 // Name and Description on the resource.
 // The script must already be loaded by the caller (via ExecuteFile).
 func PopulateMeta(l *lua.State, res *Resource) error {
-
 	// Check if meta() exists as a global function.
 	l.Push("meta")
 	t := l.GetTableRaw(lua.GlobalsIndex)
@@ -82,7 +87,7 @@ func PopulateMeta(l *lua.State, res *Resource) error {
 		return fmt.Errorf("call meta() for %s: %w", res.Slug, err)
 	}
 
-	// Result is a table at TOS. Read name and description.
+	// Result is a table at TOS. Read name, description, and notify topics.
 	if l.TypeOf(-1) == lua.TypTable {
 		name := lmods.ReadStringField(l, -1, "name", "")
 		desc := lmods.ReadStringField(l, -1, "description", "")
@@ -92,6 +97,15 @@ func PopulateMeta(l *lua.State, res *Resource) error {
 		if desc != "" {
 			res.Desc = desc
 		}
+
+		// Read notify sub-table if present.
+		l.Push("notify")
+		if l.GetTableRaw(-2) == lua.TypTable {
+			res.NotifyPass = lmods.ReadStringField(l, -1, "pass", "")
+			res.NotifyDegraded = lmods.ReadStringField(l, -1, "degraded", "")
+			res.NotifyFail = lmods.ReadStringField(l, -1, "fail", "")
+		}
+		l.Pop(1) // pop notify table or nil
 	}
 	l.Pop(1)
 	return nil
@@ -116,24 +130,31 @@ func RunCheck(l *lua.State, res Resource) (Result, error) {
 	if err != nil {
 		l.Pop(1)
 		return Result{
-			Slug:    res.Slug,
-			Name:    res.Name,
-			Desc:    res.Desc,
-			Elapsed: elapsed,
-			Err:     err.Error(),
+			Slug:           res.Slug,
+			Name:           res.Name,
+			Desc:           res.Desc,
+			NotifyPass:     res.NotifyPass,
+			NotifyDegraded: res.NotifyDegraded,
+			NotifyFail:     res.NotifyFail,
+			Elapsed:        elapsed,
+			Err:            err.Error(),
 		}, nil
 	}
 
 	if l.TypeOf(-1) != lua.TypUserData {
 		l.Pop(1)
 		return Result{
-			Slug:    res.Slug,
-			Name:    res.Name,
-			Desc:    res.Desc,
-			Elapsed: elapsed,
-			Err:     "check() did not return userdata",
+			Slug:           res.Slug,
+			Name:           res.Name,
+			Desc:           res.Desc,
+			NotifyPass:     res.NotifyPass,
+			NotifyDegraded: res.NotifyDegraded,
+			NotifyFail:     res.NotifyFail,
+			Elapsed:        elapsed,
+			Err:            "check() did not return userdata",
 		}, nil
 	}
+
 
 	raw := l.ToUser(-1)
 	l.Pop(1)
@@ -144,20 +165,26 @@ func RunCheck(l *lua.State, res Resource) (Result, error) {
 		*lmods.DNSResult, *lmods.SSLResult:
 	default:
 		return Result{
-			Slug:    res.Slug,
-			Name:    res.Name,
-			Desc:    res.Desc,
-			Elapsed: elapsed,
-			Err:     fmt.Sprintf("unknown result type %T", raw),
+			Slug:           res.Slug,
+			Name:           res.Name,
+			Desc:           res.Desc,
+			NotifyPass:     res.NotifyPass,
+			NotifyDegraded: res.NotifyDegraded,
+			NotifyFail:     res.NotifyFail,
+			Elapsed:        elapsed,
+			Err:            fmt.Sprintf("unknown result type %T", raw),
 		}, nil
 	}
 
 	return Result{
-		Slug:    res.Slug,
-		Name:    res.Name,
-		Desc:    res.Desc,
-		Raw:     raw,
-		Elapsed: elapsed,
+		Slug:           res.Slug,
+		Name:           res.Name,
+		Desc:           res.Desc,
+		NotifyPass:     res.NotifyPass,
+		NotifyDegraded: res.NotifyDegraded,
+		NotifyFail:     res.NotifyFail,
+		Raw:            raw,
+		Elapsed:        elapsed,
 	}, nil
 }
 

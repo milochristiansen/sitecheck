@@ -76,6 +76,7 @@ a:hover {
 .card.pass      { border-left: 3px solid #22c55e; }
 .card.degraded  { border-left: 3px solid #eab308; }
 .card.fail      { border-left: 3px solid #ef4444; }
+.card.error      { border-left: 3px solid #8b5cf6; }
 
 .card-header {
     display: flex;
@@ -112,6 +113,7 @@ a:hover {
 .status-dot.pass      { background: #22c55e; }
 .status-dot.degraded  { background: #eab308; }
 .status-dot.fail      { background: #ef4444; }
+.status-dot.error      { background: #8b5cf6; }
 
 /* --- card body --- */
 .card-body {
@@ -134,6 +136,7 @@ a:hover {
 .stat-value.pass      { color: #22c55e; font-weight: 600; }
 .stat-value.degraded  { color: #eab308; font-weight: 600; }
 .stat-value.fail      { color: #ef4444; font-weight: 600; }
+.stat-value.error      { color: #a78bfa; font-weight: 600; }
 .fail-reason {
     color: #f87171;
     max-width: 16em;
@@ -196,6 +199,7 @@ main {
 .status-banner.pass      { background: #14532d; color: #86efac; }
 .status-banner.degraded  { background: #713f12; color: #fde047; }
 .status-banner.fail      { background: #7f1d1d; color: #fca5a5; }
+.status-banner.error      { background: #3b1f6e; color: #c4b5fd; }
 
 .detail-title h1 {
     font-size: 1.5rem;
@@ -344,6 +348,7 @@ main {
 .recent-checks > details.pass > summary      { border-left-color: #22c55e; }
 .recent-checks > details.degraded > summary  { border-left-color: #eab308; }
 .recent-checks > details.fail > summary      { border-left-color: #ef4444; }
+.recent-checks > details.error > summary      { border-left-color: #8b5cf6; }
 .recent-checks > details > summary:hover {
     background: #334155;
 }
