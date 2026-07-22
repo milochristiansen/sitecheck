@@ -38,32 +38,6 @@ func InsertPingCheck(db *DB, c PingCheck) (int64, error) {
 	return result.LastInsertId()
 }
 
-// PingChecksBySlug returns all ping checks for a slug, newest first.
-func PingChecksBySlug(db *DB, slug string) ([]PingCheck, error) {
-	rows, err := db.Query(
-		`SELECT id, slug, timestamp, duration_ms, pass, response_time_ms,
-			packets_sent, packets_received, packet_loss_pct, min_ms, max_ms, host, error
-		FROM checks_ping WHERE slug = ? ORDER BY timestamp DESC`, slug,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("query ping checks: %w", err)
-	}
-	defer rows.Close()
-
-	var checks []PingCheck
-	for rows.Next() {
-		var c PingCheck
-		err := rows.Scan(&c.ID, &c.Slug, &c.Timestamp, &c.DurationMS, &c.Pass,
-			&c.ResponseTimeMS, &c.PacketsSent, &c.PacketsReceived, &c.PacketLossPct,
-			&c.MinMS, &c.MaxMS, &c.Host, &c.Error,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scan ping check: %w", err)
-		}
-		checks = append(checks, c)
-	}
-	return checks, rows.Err()
-}
 
 // PingChecksBySlugSince returns ping checks for a slug since the given time, oldest first.
 func PingChecksBySlugSince(db *DB, slug string, since time.Time) ([]PingCheck, error) {

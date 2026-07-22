@@ -48,6 +48,7 @@ func (db *DB) Migrate() error {
 			pass            INTEGER NOT NULL,
 			response_time_ms REAL,
 			status_code     INTEGER,
+			url             TEXT NOT NULL,
 			body_size       INTEGER,
 			body            TEXT,
 			tls_version     TEXT,

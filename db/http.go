@@ -38,32 +38,6 @@ func InsertHTTPCheck(db *DB, c HTTPCheck) (int64, error) {
 	return result.LastInsertId()
 }
 
-// HTTPChecksBySlug returns all HTTP checks for a slug, newest first.
-func HTTPChecksBySlug(db *DB, slug string) ([]HTTPCheck, error) {
-	rows, err := db.Query(
-		`SELECT id, slug, timestamp, duration_ms, pass, response_time_ms,
-			status_code, url, body, body_size, tls_version, remote_ip, redirect_count, error
-		FROM checks_http WHERE slug = ? ORDER BY timestamp DESC`, slug,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("query http checks: %w", err)
-	}
-	defer rows.Close()
-
-	var checks []HTTPCheck
-	for rows.Next() {
-		var c HTTPCheck
-		err := rows.Scan(&c.ID, &c.Slug, &c.Timestamp, &c.DurationMS, &c.Pass,
-			&c.ResponseTimeMS, &c.StatusCode, &c.URL, &c.Body, &c.BodySize,
-			&c.TLSVersion, &c.RemoteIP, &c.RedirectCount, &c.Error,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scan http check: %w", err)
-		}
-		checks = append(checks, c)
-	}
-	return checks, rows.Err()
-}
 
 // HTTPChecksBySlugSince returns HTTP checks for a slug since the given time, oldest first.
 func HTTPChecksBySlugSince(db *DB, slug string, since time.Time) ([]HTTPCheck, error) {

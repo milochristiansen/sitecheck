@@ -37,7 +37,7 @@ func LoadConfig() (*Config, error) {
 	cfg.SiteTitle = strEnv("SITECHECK_SITE_TITLE", "SiteCheck Status")
 	cfg.RetentionDays = intEnv("SITECHECK_RETENTION_DAYS", 90)
 	cfg.GraphWindows = intSliceEnv("SITECHECK_GRAPH_WINDOWS", []int{24, 168, 720})
-	cfg.NtfyServer = strEnv("SITECHECK_NTFY_SERVER", "SITECHECK_NTFY_SERVER=https://ntfy.sh")
+	cfg.NtfyServer = strEnv("SITECHECK_NTFY_SERVER", "https://ntfy.sh")
 
 	return cfg, cfg.validate()
 }
