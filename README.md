@@ -172,7 +172,7 @@ Each of these functions returns a native value with a meta table that allows Lua
 these return values **MUST** be returned from the `check()` function. You can return any of them, and you can even
 call several of these in one check (I would suggest you don't) and just pick one to return.
 
-Each of these return values have two keys you are intended to check:
+Each of these return values have two keys you are intended to set:
 
 * `Pass` defaults to `FAIL`, and is to be set by you to indicate the result of the check (see above for constants that
   should be used to set the value).

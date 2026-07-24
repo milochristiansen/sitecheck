@@ -180,8 +180,8 @@ func PopulateMeta(l *lua.State, res *Resource) error {
 		// Read notify sub-table if present. Values are booleans (wire protocol).
 		l.Push("notify")
 		if l.GetTableRaw(-2) == lua.TypTable {
-			res.NotifyPass = lmods.ReadBoolField(l, -1, "pass", false)
-			res.NotifyDegraded = lmods.ReadBoolField(l, -1, "degraded", false)
+			res.NotifyPass = lmods.ReadBoolField(l, -1, "pass", true)
+			res.NotifyDegraded = lmods.ReadBoolField(l, -1, "degraded", true)
 			res.NotifyFail = lmods.ReadBoolField(l, -1, "fail", true)
 		}
 		l.Pop(1)
