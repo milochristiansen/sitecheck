@@ -2,7 +2,7 @@ function meta()
     return {
         skip        = true,
         name        = "HTTP JSON Body",
-        description = "Checks a JSON endpoint and displays the response body",
+        description = "Parses a JSON endpoint body, extracts fields, and validates structure",
     }
 end
 
@@ -18,12 +18,26 @@ function check()
         return r
     end
 
-    if r.StatusCode == 200 then
-        r.Pass = PASS
+    if r.StatusCode ~= 200 then
+        r.Pass = DEGRADED
+        r.FailReason = "unexpected status " .. r.StatusCode
         return r
     end
 
-    r.Pass = DEGRADED
-    r.FailReason = "unexpected status " .. r.StatusCode
+    local data = json.parse(r.Body)
+    if data == nil then
+        r.Pass = DEGRADED
+        r.FailReason = "failed to parse JSON body"
+        return r
+    end
+
+    local slideshow = data.slideshow
+    if slideshow == nil then
+        r.Pass = DEGRADED
+        r.FailReason = "missing slideshow in JSON"
+        return r
+    end
+
+    r.Pass = PASS
     return r
 end
