@@ -102,11 +102,11 @@ a `meta()` function that must return a table that has information about the outp
 
 `name` is a user friendly name, used when reporting an outpost outage, etc. `url`, is the outpost URL. Simple. `token`
 is the bearer token needed to talk to the outpost. The same token you give to the outpost via `SITECHECK_TOKEN`. If
-`skip` is true, the outpost is skipped. Use for disabling and outpost if you need to, but don't want to remove it for
+`skip` is true, the outpost is skipped. Use for disabling an outpost if you need to, but don't want to remove it for
 some reason. `notify_down`, if true, tells the core application to send a notification if it can't talk to the outpost.
 This defaults to true, and you probably want to leave it that way.
 
-Speaking of if an outpost is down... If an outpost id down, the core application will look through its historical data
+Speaking of if an outpost is down... If an outpost is down, the core application will look through its historical data
 to find all the resources that have reports from the downed outpost, if it finds any it will insert a dummy report
 with the special "unknown" status. This report will show up on the generated site, but shouldn't be counted as a state
 transition for notification purposes.
@@ -125,7 +125,7 @@ Each `.lua` script in the resources directory is run as a check script. These sc
 ### `meta()` Values
 
 All fields in the meta-data table are optional. The name defaults to the base name of the resource check script file,
-skip defaults to false, and everything else defaults to an empty string.
+description defaults to an empty string, skip defaults to false, and the notify values all default to true.
 
 
 ```lua
