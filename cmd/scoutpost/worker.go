@@ -10,20 +10,33 @@ import (
 
 	"github.com/milochristiansen/lua"
 
+	"sitecheck/checktypes/registry"
 	"sitecheck/protocol"
 	"sitecheck/cmd/scoutpost/lmods"
 )
 
 // Resource represents a single check script discovered in the resources directory.
 type Resource struct {
-	Slug            string
-	ScriptPath      string
-	Name            string
-	Desc            string
-	Skip            bool
-	NotifyPass      bool
-	NotifyDegraded  bool
-	NotifyFail      bool
+	Slug           string
+	ScriptPath     string
+	Name           string
+	Desc           string
+	Skip           bool
+	NotifyPass     bool
+	NotifyDegraded bool
+	NotifyFail     bool
+}
+
+// toRegistryMeta converts this Resource to a registry.ResourceMeta for plugin dispatch.
+func (r Resource) toRegistryMeta() registry.ResourceMeta {
+	return registry.ResourceMeta{
+		Slug:           r.Slug,
+		Name:           r.Name,
+		Desc:           r.Desc,
+		NotifyPass:     r.NotifyPass,
+		NotifyDegraded: r.NotifyDegraded,
+		NotifyFail:     r.NotifyFail,
+	}
 }
 
 // Job is a single check script to execute.
@@ -47,51 +60,52 @@ func NewPool(n int, defaultTimeout int) *Pool {
 		results:        make(chan protocol.WireResult),
 		defaultTimeout: defaultTimeout,
 	}
-
 	for range n {
 		p.wg.Add(1)
 		go func() {
 			defer p.wg.Done()
+			l, err := lmods.NewState(defaultTimeout)
+			if err != nil {
+				p.results <- protocol.WireResult{Error: fmt.Sprintf("create lua state: %v", err)}
+				return
+			}
 			for job := range p.jobs {
-				l, err := lmods.NewState(p.defaultTimeout)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "  %-20s ERROR state: %v\n", job.Resource.Slug, err)
+				if job.Resource.Skip {
+					continue
+				}
+				// Load and execute the Lua script file.
+				if err := lmods.ExecuteFile(l, job.Resource.ScriptPath); err != nil {
 					p.results <- protocol.WireResult{
-						Slug:  job.Resource.Slug,
-						Error: err.Error(),
+						Slug:           job.Resource.Slug,
+						Name:           job.Resource.Name,
+						Desc:           job.Resource.Desc,
+						NotifyPass:     job.Resource.NotifyPass,
+						NotifyDegraded: job.Resource.NotifyDegraded,
+						NotifyFail:     job.Resource.NotifyFail,
+						Error:          err.Error(),
 					}
 					continue
 				}
-
-				res := job.Resource
-
-				// Load the script once; both meta() and check() run on the same state.
-				if err := lmods.ExecuteFile(l, res.ScriptPath); err != nil {
-					fmt.Fprintf(os.Stderr, "  %-20s ERROR load: %v\n", res.Slug, err)
+				// Run meta() to populate resource fields.
+				if err := PopulateMeta(l, &job.Resource); err != nil {
 					p.results <- protocol.WireResult{
-						Slug:  res.Slug,
-						Error: err.Error(),
+						Slug:           job.Resource.Slug,
+						Name:           job.Resource.Name,
+						Desc:           job.Resource.Desc,
+						NotifyPass:     job.Resource.NotifyPass,
+						NotifyDegraded: job.Resource.NotifyDegraded,
+						NotifyFail:     job.Resource.NotifyFail,
+						Error:          err.Error(),
 					}
 					continue
 				}
-
-				// Populate metadata from meta().
-				if err := PopulateMeta(l, &res); err != nil {
-					fmt.Fprintf(os.Stderr, "  %-20s meta() error: %v\n", res.Slug, err)
-				}
-
-				// If the resource is marked as skipped, drop the job entirely.
-				if res.Skip {
-					fmt.Fprintf(os.Stderr, "  %-20s SKIP\n", res.Slug)
+				if job.Resource.Skip {
 					continue
 				}
-
-				result := RunCheck(l, res)
-				p.results <- result
+				p.results <- RunCheck(l, job.Resource)
 			}
 		}()
 	}
-
 	return p
 }
 
@@ -118,21 +132,16 @@ func ScanResources(dir string) ([]Resource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read resources dir %s: %w", dir, err)
 	}
-
 	var resources []Resource
-	for _, entry := range entries {
-		if entry.IsDir() {
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".lua") {
 			continue
 		}
-		if !strings.HasSuffix(entry.Name(), ".lua") {
-			continue
-		}
-		slug := strings.TrimSuffix(entry.Name(), ".lua")
+		slug := strings.TrimSuffix(e.Name(), ".lua")
 		resources = append(resources, Resource{
 			Slug:       slug,
-			ScriptPath: filepath.Join(dir, entry.Name()),
+			ScriptPath: filepath.Join(dir, e.Name()),
 			Name:       titleCase(slug),
-			Desc:       "",
 		})
 	}
 	return resources, nil
@@ -235,63 +244,8 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 	raw := l.ToUser(-1)
 	l.Pop(1)
 
-	// Dispatch based on the typed result.
-	switch r := raw.(type) {
-	case *protocol.HTTPResult:
-		return protocol.NewWireResult(
-			res.Slug, res.Name, res.Desc,
-			"http", r.Pass, r.FailReason,
-			r.ResponseTimeMS, elapsed.Milliseconds(),
-			r.Error,
-			r,
-			res.NotifyPass, res.NotifyDegraded, res.NotifyFail,
-		)
-	case *protocol.PingResult:
-		return protocol.NewWireResult(
-			res.Slug, res.Name, res.Desc,
-			"ping", r.Pass, r.FailReason,
-			r.ResponseTimeMS, elapsed.Milliseconds(),
-			r.Error,
-			r,
-			res.NotifyPass, res.NotifyDegraded, res.NotifyFail,
-		)
-	case *protocol.TCPResult:
-		return protocol.NewWireResult(
-			res.Slug, res.Name, res.Desc,
-			"tcp", r.Pass, r.FailReason,
-			r.ResponseTimeMS, elapsed.Milliseconds(),
-			r.Error,
-			r,
-			res.NotifyPass, res.NotifyDegraded, res.NotifyFail,
-		)
-	case *protocol.DNSResult:
-		return protocol.NewWireResult(
-			res.Slug, res.Name, res.Desc,
-			"dns", r.Pass, r.FailReason,
-			r.ResponseTimeMS, elapsed.Milliseconds(),
-			r.Error,
-			r,
-			res.NotifyPass, res.NotifyDegraded, res.NotifyFail,
-		)
-	case *protocol.SSLResult:
-		return protocol.NewWireResult(
-			res.Slug, res.Name, res.Desc,
-			"ssl", r.Pass, r.FailReason,
-			r.ResponseTimeMS, elapsed.Milliseconds(),
-			r.Error,
-			r,
-			res.NotifyPass, res.NotifyDegraded, res.NotifyFail,
-		)
-	case *protocol.SystemdResult:
-		return protocol.NewWireResult(
-			res.Slug, res.Name, res.Desc,
-			"systemd", r.Pass, r.FailReason,
-			r.ResponseTimeMS, elapsed.Milliseconds(),
-			r.Error,
-			r,
-			res.NotifyPass, res.NotifyDegraded, res.NotifyFail,
-		)
-	default:
+	cr, ok := raw.(protocol.CheckResult)
+	if !ok {
 		return protocol.WireResult{
 			Slug:           res.Slug,
 			Name:           res.Name,
@@ -300,21 +254,35 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			NotifyDegraded: res.NotifyDegraded,
 			NotifyFail:     res.NotifyFail,
 			ElapsedMS:      elapsed.Milliseconds(),
-			Error:          fmt.Sprintf("unknown result type %T", raw),
+			Error:          fmt.Sprintf("check() result type %T does not implement CheckResult", raw),
 		}
 	}
+
+	p, ok := registry.ByName(cr.CheckType())
+	if !ok {
+		return protocol.WireResult{
+			Slug:           res.Slug,
+			Name:           res.Name,
+			Desc:           res.Desc,
+			NotifyPass:     res.NotifyPass,
+			NotifyDegraded: res.NotifyDegraded,
+			NotifyFail:     res.NotifyFail,
+			ElapsedMS:      elapsed.Milliseconds(),
+			Error:          fmt.Sprintf("unknown check type %q", cr.CheckType()),
+		}
+	}
+
+	return p.DispatchWireResult(res.toRegistryMeta(), cr, elapsed)
 }
 
 func titleCase(s string) string {
 	if s == "" {
 		return s
 	}
-	s = strings.ReplaceAll(s, "_", " ")
-	s = strings.ReplaceAll(s, "-", " ")
 	words := strings.Fields(s)
 	for i, w := range words {
 		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + w[1:]
+			words[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
 		}
 	}
 	return strings.Join(words, " ")

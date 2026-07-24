@@ -1,0 +1,19 @@
+{{/* ── TCP row ───────────────────────────────────────────────────────── */}}
+{{define "check_tcp_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{.Host}}:{{.Port}} — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_tcp_body" .}}
+</details>
+{{end}}
+
+{{/* ── TCP body ──────────────────────────────────────────────────────── */}}
+{{define "check_tcp_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Host</span><span class="v">{{.Host}}</span></div>
+    <div class="field"><span class="k">Port</span><span class="v">{{.Port}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Remote IP</span><span class="v">{{if .RemoteIP}}{{.RemoteIP}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}

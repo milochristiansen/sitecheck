@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"sitecheck/checktypes/outpost"
 	"sitecheck/protocol"
 )
 
@@ -74,7 +75,7 @@ func runOutpostPool(outposts []OutpostDef, cfg *Config) <-chan PoolResult {
 			if !firstResult.IsZero() {
 				respMS = float64(firstResult.Sub(start).Microseconds()) / 1000.0
 			}
-			outpostData, _ := json.Marshal(protocol.OutpostResult{
+			outpostData, _ := json.Marshal(outpost.OutpostResult{
 				Pass:           protocol.PASS,
 				ResponseTimeMS: respMS,
 				CheckCount:     totalChecks,

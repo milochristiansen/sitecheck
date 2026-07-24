@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,8 +9,17 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"sitecheck/checktypes/registry"
 	"sitecheck/protocol"
 	"sitecheck/cmd/sitecheck/db"
+
+	_ "sitecheck/checktypes/dns"
+	_ "sitecheck/checktypes/http"
+	_ "sitecheck/checktypes/outpost"
+	_ "sitecheck/checktypes/ping"
+	_ "sitecheck/checktypes/ssl"
+	_ "sitecheck/checktypes/systemd"
+	_ "sitecheck/checktypes/tcp"
 )
 
 // UNKNOWN is the pass value injected by the core when an outpost is unreachable. It is never returned by a resource
@@ -110,12 +118,16 @@ func main() {
 					fmt.Fprintf(os.Stderr, "  %-20s DB ERROR (unknown): %v\n", st.Slug, err)
 				} else {
 					fmt.Printf("  %-20s %s outpost down\n", st.Slug, label)
+					errMsg := wr.Error
+					if st.Type != "outpost" && outpost != nil {
+						errMsg = fmt.Sprintf("Outpost %s is down", outpost.Name)
+					}
 					siteResults = append(siteResults, SiteResult{
 						Slug:        st.Slug,
 						Name:        st.Slug,
 						CheckType:   st.Type,
 						Pass:        pass,
-						Err:         wr.Error,
+						Err:         errMsg,
 						OutpostSlug: pr.OutpostSlug,
 					})
 				}
@@ -202,301 +214,38 @@ func main() {
 
 // queryTypedHistory returns the full typed DB check history for a slug+type.
 func queryTypedHistory(database *db.DB, slug, outpostSlug, checkType string, since time.Time) interface{} {
-	switch checkType {
-	case "http":
-		h, err := db.HTTPChecksBySlugSince(database, slug, outpostSlug, since)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
-			return []db.HTTPCheck(nil)
-		}
-		return h
-	case "ping":
-		h, err := db.PingChecksBySlugSince(database, slug, outpostSlug, since)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
-			return []db.PingCheck(nil)
-		}
-		return h
-	case "tcp":
-		h, err := db.TCPChecksBySlugSince(database, slug, outpostSlug, since)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
-			return []db.TCPCheck(nil)
-		}
-		return h
-	case "dns":
-		h, err := db.DNSChecksBySlugSince(database, slug, outpostSlug, since)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
-			return []db.DNSCheck(nil)
-		}
-		return h
-	case "ssl":
-		h, err := db.SSLChecksBySlugSince(database, slug, outpostSlug, since)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
-			return []db.SSLCheck(nil)
-		}
-		return h
-	case "systemd":
-		h, err := db.SystemdChecksBySlugSince(database, slug, outpostSlug, since)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
-			return []db.SystemdCheck(nil)
-		}
-		return h
-	case "outpost":
-		h, err := db.OutpostChecksBySlugSince(database, slug, outpostSlug, since)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
-			return []db.OutpostCheck(nil)
-		}
-		return h
-	default:
+	p, ok := registry.ByName(checkType)
+	if !ok {
 		return nil
 	}
+	h, err := p.QuerySince(database.DB, slug, outpostSlug, since)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
+		return nil
+	}
+	return h
 }
 
 // insertWireResult deserializes the typed Data from a WireResult and inserts it into the appropriate DB check table.
 // wr.OutpostSlug must be set by the caller.
 func insertWireResult(database *db.DB, wr protocol.WireResult) error {
-	slug := wr.Slug
 	if wr.Error != "" {
-		return insertErrorResult(database, slug, wr)
+		return insertErrorResult(database, wr)
 	}
-
-	switch wr.CheckType {
-	case "http":
-		var r protocol.HTTPResult
-		if err := json.Unmarshal(wr.Data, &r); err != nil {
-			return fmt.Errorf("unmarshal http data: %w", err)
-		}
-		return insertHTTP(database, slug, wr.OutpostSlug, wr.ElapsedMS, &r)
-	case "ping":
-		var r protocol.PingResult
-		if err := json.Unmarshal(wr.Data, &r); err != nil {
-			return fmt.Errorf("unmarshal ping data: %w", err)
-		}
-		return insertPing(database, slug, wr.OutpostSlug, wr.ElapsedMS, &r)
-	case "tcp":
-		var r protocol.TCPResult
-		if err := json.Unmarshal(wr.Data, &r); err != nil {
-			return fmt.Errorf("unmarshal tcp data: %w", err)
-		}
-		return insertTCP(database, slug, wr.OutpostSlug, wr.ElapsedMS, &r)
-	case "dns":
-		var r protocol.DNSResult
-		if err := json.Unmarshal(wr.Data, &r); err != nil {
-			return fmt.Errorf("unmarshal dns data: %w", err)
-		}
-		return insertDNS(database, slug, wr.OutpostSlug, wr.ElapsedMS, &r)
-	case "ssl":
-		var r protocol.SSLResult
-		if err := json.Unmarshal(wr.Data, &r); err != nil {
-			return fmt.Errorf("unmarshal ssl data: %w", err)
-		}
-		return insertSSL(database, slug, wr.OutpostSlug, wr.ElapsedMS, &r)
-	case "systemd":
-		var r protocol.SystemdResult
-		if err := json.Unmarshal(wr.Data, &r); err != nil {
-			return fmt.Errorf("unmarshal systemd data: %w", err)
-		}
-		return insertSystemd(database, slug, wr.OutpostSlug, wr.ElapsedMS, &r)
-	case "outpost":
-		var r protocol.OutpostResult
-		if err := json.Unmarshal(wr.Data, &r); err != nil {
-			return fmt.Errorf("unmarshal outpost data: %w", err)
-		}
-		return insertOutpost(database, slug, wr.OutpostSlug, wr.ElapsedMS, &r)
-	default:
+	p, ok := registry.ByName(wr.CheckType)
+	if !ok {
 		return fmt.Errorf("unknown check type %q", wr.CheckType)
 	}
+	return p.Insert(database.DB, wr.Slug, wr.OutpostSlug, wr.ElapsedMS, wr.Data)
 }
 
 // insertErrorResult inserts a minimal row for a check that produced an error without typed data.
-func insertErrorResult(database *db.DB, slug string, wr protocol.WireResult) error {
-	switch wr.CheckType {
-	case "http":
-		_, e := db.InsertHTTPCheck(database, db.HTTPCheck{
-			Slug: slug, OutpostSlug: wr.OutpostSlug, DurationMS: wr.ElapsedMS,
-			Pass: wr.Pass, Error: wr.Error, URL: "(error)",
-		})
-		return e
-	case "ping":
-		_, e := db.InsertPingCheck(database, db.PingCheck{
-			Slug: slug, OutpostSlug: wr.OutpostSlug, DurationMS: wr.ElapsedMS,
-			Pass: wr.Pass, Error: wr.Error, Host: "(error)",
-		})
-		return e
-	case "tcp":
-		_, e := db.InsertTCPCheck(database, db.TCPCheck{
-			Slug: slug, OutpostSlug: wr.OutpostSlug, DurationMS: wr.ElapsedMS,
-			Pass: wr.Pass, Error: wr.Error, Host: "(error)", Port: 0,
-		})
-		return e
-	case "dns":
-		_, e := db.InsertDNSCheck(database, db.DNSCheck{
-			Slug: slug, OutpostSlug: wr.OutpostSlug, DurationMS: wr.ElapsedMS,
-			Pass: wr.Pass, Error: wr.Error, Host: "(error)",
-		})
-		return e
-	case "ssl":
-		_, e := db.InsertSSLCheck(database, db.SSLCheck{
-			Slug: slug, OutpostSlug: wr.OutpostSlug, DurationMS: wr.ElapsedMS,
-			Pass: wr.Pass, Error: wr.Error, Host: "(error)", Port: 0,
-		})
-		return e
-	case "systemd":
-		_, e := db.InsertSystemdCheck(database, db.SystemdCheck{
-			Slug: slug, OutpostSlug: wr.OutpostSlug, DurationMS: wr.ElapsedMS,
-			Pass: wr.Pass, Error: wr.Error, ServiceName: "(error)",
-		})
-		return e
-	case "outpost":
-		_, e := db.InsertOutpostCheck(database, db.OutpostCheck{
-			Slug: slug, OutpostSlug: wr.OutpostSlug, DurationMS: wr.ElapsedMS,
-			Pass: wr.Pass, Error: wr.Error,
-		})
-		return e
-	default:
+func insertErrorResult(database *db.DB, wr protocol.WireResult) error {
+	p, ok := registry.ByName(wr.CheckType)
+	if !ok {
 		return fmt.Errorf("unknown check type %q for error insert", wr.CheckType)
 	}
-}
-
-// --- Typed insert helpers ---
-
-func insertHTTP(database *db.DB, slug, outpostSlug string, elapsedMS int64, r *protocol.HTTPResult) error {
-	c := db.HTTPCheck{
-		Slug:           slug,
-		OutpostSlug:    outpostSlug,
-		DurationMS:     elapsedMS,
-		Pass:           r.Pass,
-		ResponseTimeMS: r.ResponseTimeMS,
-		StatusCode:     r.StatusCode,
-		URL:            r.URL,
-		BodySize:       r.BodySize,
-		TLSVersion:     r.TLSVersion,
-		RemoteIP:       r.RemoteIP,
-		RedirectCount:  r.RedirectCount,
-		Error:          r.Error,
-	}
-	if r.Body != "" {
-		c.Body = &r.Body
-	}
-	_, err := db.InsertHTTPCheck(database, c)
-	return err
-}
-
-func insertPing(database *db.DB, slug, outpostSlug string, elapsedMS int64, r *protocol.PingResult) error {
-	c := db.PingCheck{
-		Slug:            slug,
-		OutpostSlug:     outpostSlug,
-		DurationMS:      elapsedMS,
-		Pass:            r.Pass,
-		ResponseTimeMS:  r.ResponseTimeMS,
-		PacketsSent:     r.PacketsSent,
-		PacketsReceived: r.PacketsReceived,
-		PacketLossPct:   r.PacketLossPct,
-		MinMS:           r.MinMS,
-		MaxMS:           r.MaxMS,
-		Host:            r.Host,
-		Error:           r.Error,
-	}
-	_, err := db.InsertPingCheck(database, c)
-	return err
-}
-
-func insertTCP(database *db.DB, slug, outpostSlug string, elapsedMS int64, r *protocol.TCPResult) error {
-	c := db.TCPCheck{
-		Slug:           slug,
-		OutpostSlug:    outpostSlug,
-		DurationMS:     elapsedMS,
-		Pass:           r.Pass,
-		ResponseTimeMS: r.ResponseTimeMS,
-		Host:           r.Host,
-		Port:           r.Port,
-		RemoteIP:       r.RemoteIP,
-		Error:          r.Error,
-	}
-	_, err := db.InsertTCPCheck(database, c)
-	return err
-}
-
-func insertDNS(database *db.DB, slug, outpostSlug string, elapsedMS int64, r *protocol.DNSResult) error {
-	ipsJSON := "["
-	for i, ip := range r.IPs {
-		if i > 0 {
-			ipsJSON += ","
-		}
-		ipsJSON += `"` + ip + `"`
-	}
-	ipsJSON += "]"
-
-	c := db.DNSCheck{
-		Slug:           slug,
-		OutpostSlug:    outpostSlug,
-		DurationMS:     elapsedMS,
-		Pass:           r.Pass,
-		ResponseTimeMS: r.ResponseTimeMS,
-		Host:           r.Host,
-		IPs:            ipsJSON,
-		Error:          r.Error,
-	}
-	_, err := db.InsertDNSCheck(database, c)
-	return err
-}
-
-func insertSSL(database *db.DB, slug, outpostSlug string, elapsedMS int64, r *protocol.SSLResult) error {
-	c := db.SSLCheck{
-		Slug:           slug,
-		OutpostSlug:    outpostSlug,
-		DurationMS:     elapsedMS,
-		Pass:           r.Pass,
-		ResponseTimeMS: r.ResponseTimeMS,
-		Host:           r.Host,
-		Port:           r.Port,
-		Issuer:         r.Issuer,
-		Subject:        r.Subject,
-		NotBefore:      r.NotBefore,
-		NotAfter:       r.NotAfter,
-		DaysRemaining:  r.DaysRemaining,
-		Error:          r.Error,
-	}
-	_, err := db.InsertSSLCheck(database, c)
-	return err
-}
-
-func insertSystemd(database *db.DB, slug, outpostSlug string, elapsedMS int64, r *protocol.SystemdResult) error {
-	c := db.SystemdCheck{
-		Slug:           slug,
-		OutpostSlug:    outpostSlug,
-		DurationMS:     elapsedMS,
-		Pass:           r.Pass,
-		ResponseTimeMS: r.ResponseTimeMS,
-		ServiceName:    r.ServiceName,
-		ActiveState:    r.ActiveState,
-		SubState:       r.SubState,
-		LoadState:      r.LoadState,
-		MainPID:        r.MainPID,
-		Error:          r.Error,
-	}
-	_, err := db.InsertSystemdCheck(database, c)
-	return err
-}
-
-func insertOutpost(database *db.DB, slug, outpostSlug string, elapsedMS int64, r *protocol.OutpostResult) error {
-	c := db.OutpostCheck{
-		Slug:           slug,
-		OutpostSlug:    outpostSlug,
-		DurationMS:     elapsedMS,
-		Pass:           r.Pass,
-		ResponseTimeMS: r.ResponseTimeMS,
-		CheckCount:     r.CheckCount,
-		FailCount:      r.FailCount,
-		Error:          r.Error,
-	}
-	_, err := db.InsertOutpostCheck(database, c)
-	return err
+	return p.InsertError(database.DB, wr.Slug, wr.OutpostSlug, wr.ElapsedMS, wr.Pass, wr.Error)
 }
 
 // loadLocalOverride reads outposts/local.lua if it exists and returns the overrides for the implicit local outpost. URL

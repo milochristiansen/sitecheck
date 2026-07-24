@@ -1,0 +1,21 @@
+{{/* ── Systemd row ───────────────────────────────────────────────────── */}}
+{{define "check_systemd_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{.ServiceName}} — {{.ActiveState}}/{{.SubState}} — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_systemd_body" .}}
+</details>
+{{end}}
+
+{{/* ── Systemd body ──────────────────────────────────────────────────── */}}
+{{define "check_systemd_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Service</span><span class="v">{{.ServiceName}}</span></div>
+    <div class="field"><span class="k">Active State</span><span class="v">{{.ActiveState}}</span></div>
+    <div class="field"><span class="k">Sub State</span><span class="v">{{.SubState}}</span></div>
+    <div class="field"><span class="k">Load State</span><span class="v">{{if .LoadState}}{{.LoadState}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Main PID</span><span class="v">{{if .MainPID}}{{.MainPID}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}

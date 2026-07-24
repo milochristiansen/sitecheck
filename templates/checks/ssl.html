@@ -1,0 +1,23 @@
+{{/* ── SSL row ───────────────────────────────────────────────────────── */}}
+{{define "check_ssl_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{.Host}}:{{.Port}} — {{.DaysRemaining}}d left</summary>
+    {{template "check_ssl_body" .}}
+</details>
+{{end}}
+
+{{/* ── SSL body ──────────────────────────────────────────────────────── */}}
+{{define "check_ssl_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Host</span><span class="v">{{.Host}}</span></div>
+    <div class="field"><span class="k">Port</span><span class="v">{{.Port}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Subject</span><span class="v">{{if .Subject}}{{.Subject}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Issuer</span><span class="v">{{if .Issuer}}{{.Issuer}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Not Before</span><span class="v">{{if .NotBefore}}{{.NotBefore}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Not After</span><span class="v">{{if .NotAfter}}{{.NotAfter}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Days Remaining</span><span class="v {{if lt .DaysRemaining 30}}warn{{end}}">{{.DaysRemaining}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}

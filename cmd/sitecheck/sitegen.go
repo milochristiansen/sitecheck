@@ -1,16 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
-	"sitecheck/cmd/sitecheck/db"
+	"sitecheck/checktypes/registry"
 )
-
 // IndexData is the template data for index.html.
 type IndexData struct {
 	Title         string
@@ -22,6 +23,7 @@ type IndexData struct {
 	UpCount       int
 	DegradedCount int
 	DownCount     int
+	UnknownCount  int
 }
 
 // ResourceCard holds per-resource display data for the overview page.
@@ -34,6 +36,13 @@ type ResourceCard struct {
 	Uptime24h  float64
 	Sparkline  template.HTML
 	FailReason string
+}
+
+// RenderedCheck holds a pre-identified check with template dispatch info.
+type RenderedCheck struct {
+	RowTemplateName  string
+	BodyTemplateName string
+	Data             interface{}
 }
 
 // ResourcePage holds all data for a resource detail page.
@@ -69,11 +78,11 @@ type ResourcePage struct {
 	DurationCharts map[int]template.HTML
 	GraphWindows   []int
 
-	// Latest check row (typed DB struct pointer e.g. *db.HTTPCheck)
-	LatestCheck interface{}
+	// Latest check row for display.
+	LatestCheck *RenderedCheck
 
-	// Recent checks for the collapsible table (typed DB slice, newest first)
-	RecentChecks interface{}
+	// Recent checks for the collapsible table.
+	RecentChecks []RenderedCheck
 	RecentCount  int
 }
 
@@ -104,22 +113,19 @@ func Generate(cfg *Config, results []SiteResult) error {
 		return fmt.Errorf("copy static: %w", err)
 	}
 
-	// Parse separate template sets — each page type has its own "content" block.
-	indexTmpl, err := template.New("").Funcs(tmplFuncs()).ParseFiles(
+	// Collect base + index templates.
+	baseFiles := []string{
 		filepath.Join(cfg.TemplatesDir, "base.html"),
-		filepath.Join(cfg.TemplatesDir, "index.html"),
-	)
+	}
+	indexFiles := append(baseFiles, filepath.Join(cfg.TemplatesDir, "index.html"))
+
+	indexTmpl, err := template.New("").Funcs(tmplFuncs()).ParseFiles(indexFiles...)
 	if err != nil {
 		return fmt.Errorf("parse index templates: %w", err)
 	}
 
-	detailTmpl, err := template.New("").Funcs(tmplFuncs()).ParseFiles(
-		filepath.Join(cfg.TemplatesDir, "base.html"),
-		filepath.Join(cfg.TemplatesDir, "resource.html"),
-	)
-	if err != nil {
-		return fmt.Errorf("parse detail templates: %w", err)
-	}
+	_ = baseFiles // unused for detail — writeDetailPage parses its own template set
+
 	// --- Overview page ---
 	var resourceResults, outpostResults []SiteResult
 	for _, r := range results {
@@ -131,7 +137,7 @@ func Generate(cfg *Config, results []SiteResult) error {
 	}
 	resourceCards := buildCards(resourceResults)
 	outpostCards := buildCards(outpostResults)
-	up, deg, down := countStatuses(resourceCards)
+	up, deg, down, unknown := countStatuses(resourceCards)
 
 	data := IndexData{
 		Title:         cfg.SiteTitle + " — Overview",
@@ -143,6 +149,7 @@ func Generate(cfg *Config, results []SiteResult) error {
 		UpCount:       up,
 		DegradedCount: deg,
 		DownCount:     down,
+		UnknownCount:  unknown,
 	}
 
 	outPath := filepath.Join(cfg.OutputDir, "index.html")
@@ -161,7 +168,7 @@ func Generate(cfg *Config, results []SiteResult) error {
 	resourcesDir := filepath.Join(cfg.OutputDir, "resources")
 	for _, r := range results {
 		page := buildResourcePage(cfg, r)
-		if err := writeDetailPage(detailTmpl, resourcesDir, page); err != nil {
+		if err := writeDetailPage(resourcesDir, page); err != nil {
 			return err
 		}
 	}
@@ -171,34 +178,32 @@ func Generate(cfg *Config, results []SiteResult) error {
 
 func buildCards(results []SiteResult) []ResourceCard {
 	cards := make([]ResourceCard, 0, len(results))
-
 	for _, r := range results {
 		card := ResourceCard{
-			Slug: r.OutpostSlug + "-" + r.Slug,
-			Name: r.Name,
-			Pass: -1,
+			Slug:       r.OutpostSlug + "-" + r.Slug,
+			Name:       r.Name,
+			CheckType:  r.CheckType,
+			Pass:       r.Pass,
+			ResponseMS: r.ResponseMS,
+			FailReason: r.FailReason,
 		}
-
-		card.CheckType = r.CheckType
-		card.Pass = r.Pass
-		card.FailReason = r.FailReason
-		card.ResponseMS = r.ResponseMS
 		if r.Err != "" && card.FailReason == "" {
 			card.FailReason = r.Err
 		}
-
-		pts := extractPoints(r.History)
-		if len(pts) > 0 {
-			card.Uptime24h = calcUptimePct(lastNHours(pts, 24))
-			card.Sparkline = Sparkline(pts, 120, 30)
+		if r.History != nil {
+			p, ok := registry.ByName(r.CheckType)
+			if ok {
+				pts := extractPoints(r.History, p)
+				card.Uptime24h = calcUptimePct(lastNHours(pts, 24))
+				card.Sparkline = Sparkline(pts, 120, 30)
+			}
 		}
-
 		cards = append(cards, card)
 	}
 	return cards
 }
 
-func countStatuses(cards []ResourceCard) (up, degraded, down int) {
+func countStatuses(cards []ResourceCard) (up, degraded, down, unknown int) {
 	for _, c := range cards {
 		switch c.Pass {
 		case 2:
@@ -207,6 +212,8 @@ func countStatuses(cards []ResourceCard) (up, degraded, down int) {
 			degraded++
 		case 0:
 			down++
+		case -1:
+			unknown++
 		}
 	}
 	return
@@ -233,124 +240,112 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 		page.FailReason = r.Err
 	}
 
-	pts := extractPoints(r.History)
-	if len(pts) > 0 {
-		page.TotalChecks = len(pts)
-		page.AvgResponseMS, page.MinResponseMS, page.MaxResponseMS = calcRespStats(pts)
-		page.Uptime24h = calcUptimePct(lastNHours(pts, 24))
-		page.Uptime7d = calcUptimePct(lastNHours(pts, 7*24))
-		page.Uptime30d = calcUptimePct(pts)
-	}
+	// Look up the plugin for this check type.
+	p, hasPlugin := registry.ByName(r.CheckType)
 
-	// Charts per window.
-	page.Charts = make(map[int]template.HTML)
-	for _, w := range cfg.GraphWindows {
-		windowPts := lastNHours(pts, w)
-		if len(windowPts) >= 2 {
-			page.Charts[w] = LineChart(windowPts, 700, 280)
+	if hasPlugin {
+		pts := extractPoints(r.History, p)
+		if len(pts) > 0 {
+			page.TotalChecks = len(pts)
+			page.AvgResponseMS, page.MinResponseMS, page.MaxResponseMS = calcRespStats(pts)
+			page.Uptime24h = calcUptimePct(lastNHours(pts, 24))
+			page.Uptime7d = calcUptimePct(lastNHours(pts, 7*24))
+			page.Uptime30d = calcUptimePct(pts)
 		}
-	}
 
-	// Duration stats and charts (outpost only).
-	if r.CheckType == "outpost" {
-		durPts := extractDurationPoints(r.History)
+		// Charts per window.
+		page.Charts = make(map[int]template.HTML)
+		for _, w := range cfg.GraphWindows {
+			windowPts := lastNHours(pts, w)
+			if len(windowPts) >= 2 {
+				page.Charts[w] = LineChart(windowPts, 700, 280)
+			}
+		}
+
+		// Duration stats and charts (plugin-driven).
+		durPts := extractDurationPoints(r.History, p)
 		if len(durPts) > 0 {
 			page.DurationAvgMS, page.DurationMinMS, page.DurationMaxMS = calcRespStats(durPts)
+			page.DurationCharts = make(map[int]template.HTML)
+			for _, w := range cfg.GraphWindows {
+				windowPts := lastNHours(durPts, w)
+				if len(windowPts) >= 2 {
+					page.DurationCharts[w] = LineChart(windowPts, 700, 280)
+				}
+			}
 		}
-		page.DurationCharts = make(map[int]template.HTML)
-		for _, w := range cfg.GraphWindows {
-			windowPts := lastNHours(durPts, w)
-			if len(windowPts) >= 2 {
-				page.DurationCharts[w] = LineChart(windowPts, 700, 280)
+
+		// Latest check and recent checks via plugin.
+		if r.History != nil {
+			latest, recent, count := p.LatestRecent(r.History, maxRecentChecks)
+			rowName, bodyName := p.TemplateNames()
+			if latest != nil {
+				page.LatestCheck = &RenderedCheck{
+					BodyTemplateName: bodyName,
+					Data:             latest,
+				}
+			}
+			if recent != nil && count > 0 {
+				page.RecentCount = count
+				rv := reflect.ValueOf(recent)
+				page.RecentChecks = make([]RenderedCheck, 0, rv.Len())
+				for i := 0; i < rv.Len(); i++ {
+					page.RecentChecks = append(page.RecentChecks, RenderedCheck{
+						RowTemplateName:  rowName,
+						BodyTemplateName: bodyName,
+						Data:             rv.Index(i).Interface(),
+					})
+				}
 			}
 		}
 	}
 
-	// Latest check and recent checks from typed history.
-	page.LatestCheck, page.RecentChecks, page.RecentCount = extractCheckDetails(r.History)
-
 	return page
 }
 
-// extractCheckDetails returns the latest check row and the last N-1 recent rows (newest first, excluding the latest)
-// from the typed history slice.
-func extractCheckDetails(history interface{}) (latest interface{}, recent interface{}, count int) {
-	switch h := history.(type) {
-	case []db.HTTPCheck:
-		if len(h) == 0 {
-			return nil, nil, 0
-		}
-		latest = &h[len(h)-1]
-		reversed, n := reverseSkipFirst(h)
-		return latest, reversed, n
-	case []db.PingCheck:
-		if len(h) == 0 {
-			return nil, nil, 0
-		}
-		latest = &h[len(h)-1]
-		reversed, n := reverseSkipFirst(h)
-		return latest, reversed, n
-	case []db.TCPCheck:
-		if len(h) == 0 {
-			return nil, nil, 0
-		}
-		latest = &h[len(h)-1]
-		reversed, n := reverseSkipFirst(h)
-		return latest, reversed, n
-	case []db.DNSCheck:
-		if len(h) == 0 {
-			return nil, nil, 0
-		}
-		latest = &h[len(h)-1]
-		reversed, n := reverseSkipFirst(h)
-		return latest, reversed, n
-	case []db.SSLCheck:
-		if len(h) == 0 {
-			return nil, nil, 0
-		}
-		latest = &h[len(h)-1]
-		reversed, n := reverseSkipFirst(h)
-		return latest, reversed, n
-	case []db.SystemdCheck:
-		if len(h) == 0 {
-			return nil, nil, 0
-		}
-		latest = &h[len(h)-1]
-		reversed, n := reverseSkipFirst(h)
-		return latest, reversed, n
-	case []db.OutpostCheck:
-		if len(h) == 0 {
-			return nil, nil, 0
-		}
-		latest = &h[len(h)-1]
-		reversed, n := reverseSkipFirst(h)
-		return latest, reversed, n
-	}
-	return nil, nil, 0
+// templateRenderer holds a fully parsed template set so that renderCheck can close over it.
+type templateRenderer struct {
+	tmpl *template.Template
 }
 
-// reverseSkipFirst reverses a slice of any type, skipping the last element (the newest entry). Returns the reversed
-// subset and its length.
-func reverseSkipFirst[S ~[]E, E any](s S) (S, int) {
-	if len(s) <= 1 {
-		return nil, 0
+func (tr *templateRenderer) renderCheck(name string, data interface{}) (template.HTML, error) {
+	var buf bytes.Buffer
+	if err := tr.tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		return "", err
 	}
-	n := len(s) - 1
-	if n > maxRecentChecks {
-		n = maxRecentChecks
-	}
-	reversed := make(S, n)
-	for i := range n {
-		reversed[i] = s[len(s)-2-i]
-	}
-	return reversed, n
+	return template.HTML(buf.String()), nil
 }
 
-// writeDetailPage renders a single resource detail page to disk.
-func writeDetailPage(tmpl *template.Template, resourcesDir string, page ResourcePage) error {
+// writeDetailPage renders a single resource detail page to disk. It creates its own template set
+// with renderCheck included.
+func writeDetailPage(resourcesDir string, page ResourcePage) error {
 	if err := os.MkdirAll(resourcesDir, 0o755); err != nil {
 		return fmt.Errorf("create dir %s: %w", resourcesDir, err)
 	}
+
+	// Collect all template files including check type templates.
+	allFiles := []string{"templates/base.html", "templates/resource.html"}
+	files, err := filepath.Glob("templates/checks/*.html")
+	if err != nil {
+		return fmt.Errorf("glob check templates: %w", err)
+	}
+	allFiles = append(allFiles, files...)
+
+	// Create template with renderCheck function closure.
+	tr := &templateRenderer{}
+	tmpl := template.New("").Funcs(template.FuncMap{
+		"renderCheck":      tr.renderCheck,
+		"statusClass":      statusClass,
+		"passName":         passName,
+		"formatPct":        formatPct,
+		"formatDuration":   formatDuration,
+		"formatDurationMS": formatDurationMS,
+		"dict":             dict,
+	})
+	if _, err := tmpl.ParseFiles(allFiles...); err != nil {
+		return fmt.Errorf("parse detail templates: %w", err)
+	}
+	tr.tmpl = tmpl
 
 	outPath := filepath.Join(resourcesDir, page.Slug+".html")
 	f, err := os.Create(outPath)
@@ -360,7 +355,7 @@ func writeDetailPage(tmpl *template.Template, resourcesDir string, page Resource
 	defer f.Close()
 
 	if err := tmpl.ExecuteTemplate(f, "base.html", page); err != nil {
-		return fmt.Errorf("render detail %s: %w", page.Slug, err)
+		return fmt.Errorf("render %s: %w", outPath, err)
 	}
 	fmt.Printf("  Wrote %s\n", outPath)
 	return nil
@@ -371,14 +366,7 @@ func lastNHours(pts []checkPoint, hours int) []checkPoint {
 	if len(pts) == 0 {
 		return nil
 	}
-	lastTS := pts[len(pts)-1].ts
-	cutoff := ""
-	if t, err := time.Parse("2006-01-02 15:04:05", lastTS); err == nil {
-		cutoff = t.Add(-time.Duration(hours) * time.Hour).Format("2006-01-02 15:04:05")
-	}
-	if cutoff == "" {
-		return pts
-	}
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour).UTC().Format("2006-01-02 15:04:05")
 	for i := range pts {
 		if pts[i].ts >= cutoff {
 			return pts[i:]
@@ -394,7 +382,7 @@ func calcRespStats(pts []checkPoint) (avg, min, max float64) {
 	}
 	min = pts[0].resp
 	max = pts[0].resp
-	sum := 0.0
+	var sum float64
 	for _, p := range pts {
 		sum += p.resp
 		if p.resp < min {
@@ -408,50 +396,40 @@ func calcRespStats(pts []checkPoint) (avg, min, max float64) {
 }
 
 func copyDir(src, dst string) error {
-	if _, err := os.Stat(src); os.IsNotExist(err) {
-		return nil
-	}
-
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return err
 	}
-
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		if entry.IsDir() {
+	for _, e := range entries {
+		srcPath := filepath.Join(src, e.Name())
+		dstPath := filepath.Join(dst, e.Name())
+		if e.IsDir() {
 			if err := copyDir(srcPath, dstPath); err != nil {
 				return err
 			}
-			continue
-		}
-
-		if err := copyFile(srcPath, dstPath); err != nil {
-			return err
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
 func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	s, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
+	defer s.Close()
+	d, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
+	defer d.Close()
+	_, err = io.Copy(d, s)
 	return err
 }

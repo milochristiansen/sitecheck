@@ -12,6 +12,8 @@ import (
 	"github.com/milochristiansen/lua/lmodpackage"
 	"github.com/milochristiansen/lua/lmodstring"
 	"github.com/milochristiansen/lua/lmodtable"
+
+	"sitecheck/checktypes/registry"
 	"sitecheck/protocol"
 )
 
@@ -41,12 +43,9 @@ func NewState(defaultTimeout int) (*lua.State, error) {
 		l.Push(int64(protocol.FAIL))
 		l.SetGlobal("FAIL")
 
-		registerHTTP(l, defaultTimeout)
-		registerPing(l, defaultTimeout)
-		registerTCP(l, defaultTimeout)
-		registerDNS(l, defaultTimeout)
-		registerSSL(l, defaultTimeout)
-		registerSystemd(l, defaultTimeout)
+		for _, p := range registry.All() {
+			p.RegisterLua(l, defaultTimeout)
+		}
 	})
 
 	return l, err

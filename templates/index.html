@@ -4,6 +4,7 @@
     <span class="count up">{{.UpCount}} up</span>
     <span class="count degraded">{{.DegradedCount}} degraded</span>
     <span class="count down">{{.DownCount}} down</span>
+    {{if .UnknownCount}}<span class="count unknown">{{.UnknownCount}} unknown</span>{{end}}
 </div>
 
 <div class="resource-grid">
@@ -16,8 +17,7 @@
         </div>
         <div class="card-body">
             {{if eq .Pass -1}}
-            <div class="no-data">Check error</div>
-            {{if .FailReason}}<div class="stat-row"><span class="stat-value error">{{.FailReason}}</span></div>{{end}}
+            <div class="no-data">Owning outpost failed</div>
             {{else}}
             <div class="stat-row">
                 <span class="stat-label">Status</span>

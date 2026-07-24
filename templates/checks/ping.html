@@ -1,0 +1,20 @@
+{{define "check_ping_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{formatPct .PacketLossPct}} loss — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_ping_body" .}}
+</details>
+{{end}}
+
+{{define "check_ping_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Host</span><span class="v">{{.Host}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Packets Sent</span><span class="v">{{.PacketsSent}}</span></div>
+    <div class="field"><span class="k">Packets Received</span><span class="v">{{.PacketsReceived}}</span></div>
+    <div class="field"><span class="k">Packet Loss</span><span class="v">{{formatPct .PacketLossPct}}</span></div>
+    <div class="field"><span class="k">Min</span><span class="v">{{formatDuration .MinMS}}</span></div>
+    <div class="field"><span class="k">Max</span><span class="v">{{formatDuration .MaxMS}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}

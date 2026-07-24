@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"strings"
 
-	"sitecheck/cmd/sitecheck/db"
+	"sitecheck/checktypes/registry"
 )
 
 // checkPoint is an internal type used by sparkline, line chart and uptime calculations. It extracts the common fields
@@ -16,66 +16,31 @@ type checkPoint struct {
 	ts   string
 }
 
-// extractPoints converts a typed DB check slice to the common internal form.
-func extractPoints(history interface{}) []checkPoint {
-	switch h := history.(type) {
-	case []db.HTTPCheck:
-		pts := make([]checkPoint, len(h))
-		for i, c := range h {
-			pts[i] = checkPoint{c.Pass, c.ResponseTimeMS, c.Timestamp}
-		}
-		return pts
-	case []db.PingCheck:
-		pts := make([]checkPoint, len(h))
-		for i, c := range h {
-			pts[i] = checkPoint{c.Pass, c.ResponseTimeMS, c.Timestamp}
-		}
-		return pts
-	case []db.TCPCheck:
-		pts := make([]checkPoint, len(h))
-		for i, c := range h {
-			pts[i] = checkPoint{c.Pass, c.ResponseTimeMS, c.Timestamp}
-		}
-		return pts
-	case []db.DNSCheck:
-		pts := make([]checkPoint, len(h))
-		for i, c := range h {
-			pts[i] = checkPoint{c.Pass, c.ResponseTimeMS, c.Timestamp}
-		}
-		return pts
-	case []db.SSLCheck:
-		pts := make([]checkPoint, len(h))
-		for i, c := range h {
-			pts[i] = checkPoint{c.Pass, c.ResponseTimeMS, c.Timestamp}
-		}
-		return pts
-	case []db.SystemdCheck:
-		pts := make([]checkPoint, len(h))
-		for i, c := range h {
-			pts[i] = checkPoint{c.Pass, c.ResponseTimeMS, c.Timestamp}
-		}
-		return pts
-	case []db.OutpostCheck:
-		pts := make([]checkPoint, len(h))
-		for i, c := range h {
-			pts[i] = checkPoint{c.Pass, c.ResponseTimeMS, c.Timestamp}
-		}
-		return pts
-	}
-	return nil
-}
-
-// extractDurationPoints is like extractPoints but uses DurationMS for the response value. Only handles outpost checks.
-func extractDurationPoints(history interface{}) []checkPoint {
-	h, ok := history.([]db.OutpostCheck)
-	if !ok {
+// extractPoints converts a typed DB check slice to the common internal form via the plugin.
+func extractPoints(history interface{}, p registry.CheckPlugin) []checkPoint {
+	if history == nil || p == nil {
 		return nil
 	}
-	pts := make([]checkPoint, len(h))
-	for i, c := range h {
-		pts[i] = checkPoint{c.Pass, float64(c.DurationMS), c.Timestamp}
+	pts := p.ExtractPoints(history)
+	out := make([]checkPoint, len(pts))
+	for i, pt := range pts {
+		out[i] = checkPoint{pt.Pass, pt.Resp, pt.TS}
 	}
-	return pts
+	return out
+}
+
+// extractDurationPoints is like extractPoints but uses duration fields. Only types that support duration charts
+// return non-empty results.
+func extractDurationPoints(history interface{}, p registry.CheckPlugin) []checkPoint {
+	if history == nil || p == nil {
+		return nil
+	}
+	pts := p.ExtractDurationPoints(history)
+	out := make([]checkPoint, len(pts))
+	for i, pt := range pts {
+		out[i] = checkPoint{pt.Pass, pt.Resp, pt.TS}
+	}
+	return out
 }
 
 // Sparkline returns an inline SVG sparkline for the given check points. If there are fewer than 2 points, returns an

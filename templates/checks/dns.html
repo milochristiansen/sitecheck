@@ -1,0 +1,18 @@
+{{/* ── DNS row ───────────────────────────────────────────────────────── */}}
+{{define "check_dns_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{.Host}} — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_dns_body" .}}
+</details>
+{{end}}
+
+{{/* ── DNS body ──────────────────────────────────────────────────────── */}}
+{{define "check_dns_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Host</span><span class="v">{{.Host}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">IPs</span><span class="v">{{if .IPs}}{{.IPs}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}

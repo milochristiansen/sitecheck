@@ -9,15 +9,13 @@ import (
 // tmplFuncs returns the template.FuncMap used by all templates.
 func tmplFuncs() template.FuncMap {
 	return template.FuncMap{
-		"formatTime":       formatTime,
-		"formatDuration":   formatDuration,
+		"formatTime":      formatTime,
+		"formatDuration":  formatDuration,
 		"formatDurationMS": formatDurationMS,
-		"formatPct":        formatPct,
-		"statusClass":      statusClass,
-		"sparkline":        sparklineFunc,
-		"dict":             dict,
-		"lt":               func(a, b int) bool { return a < b },
-		"passName":         passName,
+		"formatPct":       formatPct,
+		"statusClass":     statusClass,
+		"passName":        passName,
+		"dict":            dict,
 	}
 }
 
@@ -33,19 +31,10 @@ func formatTime(ts string) string {
 
 // formatDuration renders milliseconds as a human-readable string.
 func formatDuration(ms float64) string {
-	d := time.Duration(ms) * time.Millisecond
-	switch {
-	case d < time.Millisecond:
-		return fmt.Sprintf("%.0fµs", ms*1000)
-	case d < time.Second:
-		return fmt.Sprintf("%.0fms", ms)
-	case d < time.Minute:
-		return fmt.Sprintf("%.1fs", ms/1000)
-	default:
-		m := int(d.Minutes())
-		s := d.Seconds() - float64(m*60)
-		return fmt.Sprintf("%dm%.0fs", m, s)
+	if ms >= 1000 {
+		return fmt.Sprintf("%.2fs", ms/1000)
 	}
+	return fmt.Sprintf("%.1fms", ms)
 }
 
 // formatDurationMS renders int64 milliseconds as a human-readable string.
@@ -65,30 +54,25 @@ func statusClass(pass int) string {
 		return "pass"
 	case 1:
 		return "degraded"
+	case 0:
+		return "fail"
 	case -1:
 		return "error"
 	default:
-		return "fail"
+		return "unknown"
 	}
-}
-
-// sparklineFunc wraps Sparkline for use in templates. It accepts a typed DB history slice and extracts common fields
-// for rendering.
-func sparklineFunc(history interface{}, width, height int) template.HTML {
-	pts := extractPoints(history)
-	return Sparkline(pts, width, height)
 }
 
 // dict builds a map from alternating key/value pairs. Used in templates to pass multiple values to sub-templates.
 func dict(values ...interface{}) (map[string]interface{}, error) {
 	if len(values)%2 != 0 {
-		return nil, fmt.Errorf("dict: odd number of arguments")
+		return nil, fmt.Errorf("dict requires even number of arguments")
 	}
 	m := make(map[string]interface{}, len(values)/2)
 	for i := 0; i < len(values); i += 2 {
 		key, ok := values[i].(string)
 		if !ok {
-			return nil, fmt.Errorf("dict: key %d is not a string", i)
+			return nil, fmt.Errorf("dict keys must be strings")
 		}
 		m[key] = values[i+1]
 	}
@@ -100,11 +84,11 @@ func calcUptimePct(pts []checkPoint) float64 {
 	if len(pts) == 0 {
 		return 0
 	}
-	passCount := 0
+	var ok int
 	for _, p := range pts {
-		if p.pass >= 1 {
-			passCount++
+		if p.pass == 2 || p.pass == 1 {
+			ok++
 		}
 	}
-	return float64(passCount) / float64(len(pts)) * 100
+	return float64(ok) / float64(len(pts)) * 100
 }

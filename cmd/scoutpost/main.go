@@ -5,6 +5,14 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+
+	_ "sitecheck/checktypes/dns"
+	_ "sitecheck/checktypes/http"
+	_ "sitecheck/checktypes/outpost"
+	_ "sitecheck/checktypes/ping"
+	_ "sitecheck/checktypes/ssl"
+	_ "sitecheck/checktypes/systemd"
+	_ "sitecheck/checktypes/tcp"
 )
 
 func main() {
