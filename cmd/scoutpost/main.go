@@ -7,6 +7,7 @@ import (
 	"github.com/joho/godotenv"
 
 	_ "sitecheck/checktypes/dns"
+	_ "sitecheck/checktypes/exec"
 	_ "sitecheck/checktypes/http"
 	_ "sitecheck/checktypes/outpost"
 	_ "sitecheck/checktypes/ping"

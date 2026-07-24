@@ -1,0 +1,21 @@
+{{/* ── Exec row ──────────────────────────────────────────────────────── */}}
+{{define "check_exec_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — exit {{.ExitCode}} — {{.Command}} — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_exec_body" .}}
+</details>
+{{end}}
+
+{{/* ── Exec body ─────────────────────────────────────────────────────── */}}
+{{define "check_exec_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Command</span><span class="v"><code>{{.Command}}</code></span></div>
+    <div class="field"><span class="k">Exit Code</span><span class="v">{{.ExitCode}}</span></div>
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{if .Stdout}}<details class="output-block"><summary>stdout ({{len .Stdout}} bytes)</summary><pre>{{.Stdout}}</pre></details>{{end}}
+{{if .Stderr}}<details class="output-block"><summary>stderr ({{len .Stderr}} bytes)</summary><pre>{{.Stderr}}</pre></details>{{end}}
+{{if .Combined}}<details class="output-block" open><summary>combined output ({{len .Combined}} bytes)</summary><pre>{{.Combined}}</pre></details>{{end}}
+{{end}}

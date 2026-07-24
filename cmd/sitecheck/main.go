@@ -14,6 +14,7 @@ import (
 	"sitecheck/cmd/sitecheck/db"
 
 	_ "sitecheck/checktypes/dns"
+	_ "sitecheck/checktypes/exec"
 	_ "sitecheck/checktypes/http"
 	_ "sitecheck/checktypes/outpost"
 	_ "sitecheck/checktypes/ping"

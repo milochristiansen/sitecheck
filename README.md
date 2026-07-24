@@ -166,6 +166,7 @@ The following constants are provided to use when setting the `Pass` value in the
 | `dns_lookup(host, opts)`            | DNS resolution                     |
 | `ssl_certificate(host, port, opts)` | TLS certificate inspection         |
 | `systemd_check(service, opts)`      | systemd service status check       |
+| `exec_command(command, args, opts)` | Arbitrary command execution        |
 
 Each of these functions returns a native value with a meta table that allows Lua to read some of the fields. One of
 these return values **MUST** be returned from the `check()` function. You can return any of them, and you can even
@@ -318,6 +319,31 @@ Returns:
 | `MainPID`        | int    | main process PID (0 if none)                                 |
 | `ResponseTimeMS` | float  | milliseconds                                                 |
 | `Error`          | string | error message (D-Bus or unit lookup failure)                 |
+
+
+**`exec_command(command, args, opts)`**
+
+Run an arbitrary command and capture its exit code and output. The command runs directly (no shell)
+unless you invoke `sh` or similar. Output is captured in three forms: stdout-only, stderr-only, and a
+combined interleaved stream that preserves the original write ordering.
+
+| Option    | Type   | Default        | Notes                              |
+|-----------|--------|----------------|------------------------------------|
+| `timeout` | number | config default | kill the command after N seconds   |
+| `env`     | table  | *(current)*    | `{ ["KEY"] = "value", ... }`       |
+| `stdin`   | string | `""`           | piped to command stdin             |
+
+Returns:
+
+| Field            | Type   | Notes                                          |
+|------------------|--------|------------------------------------------------|
+| `Command`        | string | full command line (for display)                |
+| `ExitCode`       | int    | process exit code (`-1` if no exit occurred)   |
+| `Stdout`         | string | standard output (truncated to 64 KiB in DB)    |
+| `Stderr`         | string | standard error  (truncated to 64 KiB in DB)    |
+| `Combined`       | string | interleaved stdout+stderr (truncated to 64 KiB)|
+| `ResponseTimeMS` | float  | wall-clock milliseconds                        |
+| `Error`          | string | execution error (timeout, not found, etc.)     |
 
 
 ## Generated Site
