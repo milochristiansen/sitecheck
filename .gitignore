@@ -4,11 +4,11 @@ output/
 # SQLite database
 data/
 
-# Binary
+# Binaries
 sitecheck
+scoutpost
+!sitecheck/
+!scoutpost/
 
 # Config
 .env
-
-# Design document
-PLAN.md

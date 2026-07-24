@@ -8,14 +8,23 @@ with the results, and exits, you then run it on a schedule with cron or similar 
 The actual checks are Lua scripts. There are a set of functions you can call to do various common checks. You then
 go over the results and annotate them with a pass/degraded/failed status based on whatever criteria you wish.
 
+By design you generally don't want your monitoring to be on the server(s) being monitored, but sometimes you need to be
+able to check the status of internal services, docker containers with no public API, etc. To make that possible, this
+application uses outposts, small stand alone applications that are designed to run resource checks. The core application
+does all the work of tracking resource history, orchestrating the outposts, generating the static site, etc. The
+outposts *only* run checks and reports their results.
+
+The core application will run a local outpost that should be used for most checks, but remote ones are there to be used
+as needed. More information about how to configure outposts can be found elsewhere in this readme.
+
 
 ## Building
 
-Go ahead and clone this repo and just `go build` in the root. From there you can simply run the resulting binary and
-everything should "just work".
+Clone this repo and `go build ./cmd/sitecheck` and `go build ./cmd/scoutpost` . From there you can simply run
+`sitecheck` and everything should "just work".
 
 This is great for playing with the example resource check scripts, etc, but if you actually want to run this in
-production you will likely want to copy the binary, templates, and static files to somewhere else. From there you can
+production you will likely want to copy the binaries, templates, and static files to somewhere else. From there you can
 set up a web server to serve the output files, whatever cron solution you want to use to schedule runs, and any other
 config you may need.
 
@@ -27,19 +36,77 @@ it will be loaded and variables will be read from it, however actual environment
 
 All variables have the default values shown below.
 
-```env
-SITECHECK_WORKERS=4
-SITECHECK_DEFAULT_TIMEOUT=30
-SITECHECK_DB_PATH=data/sitecheck.db
-SITECHECK_RESOURCES_DIR=resources
-SITECHECK_TEMPLATES_DIR=templates
-SITECHECK_OUTPUT_DIR=output
-SITECHECK_STATIC_DIR=static
-SITECHECK_SITE_TITLE=SiteCheck Status
-SITECHECK_RETENTION_DAYS=90
-SITECHECK_GRAPH_WINDOWS=24,168,720
-SITECHECK_NTFY_SERVER=https://ntfy.sh
+
+### Core (`sitecheck`)
+
+These variables control the site generation and the database mostly. There is a worker pool for concurrent access to
+outposts that you can play with if you want.
+
+| Variable                    | Default             | Description                                                     |
+|-----------------------------|---------------------|-----------------------------------------------------------------|
+| `SITECHECK_OUTPOST_BIN`     | `./scoutpost`       | Path to the scoutpost binary for local checks                   |
+| `SITECHECK_OUTPOST_WORKERS` | `4`                 | Max concurrent outpost connections                              |
+| `SITECHECK_DEFAULT_TIMEOUT` | `30`                | Connection and check timeout (seconds)                          |
+| `SITECHECK_RESOURCES_DIR`   | `resources`         | Check scripts directory (passed to local outpost)               |
+| `SITECHECK_DB_PATH`         | `data/sitecheck.db` | SQLite database path                                            |
+| `SITECHECK_TEMPLATES_DIR`   | `templates`         | HTML templates directory                                        |
+| `SITECHECK_OUTPUT_DIR`      | `output`            | Static site output directory                                    |
+| `SITECHECK_STATIC_DIR`      | `static`            | Static assets (CSS) directory                                   |
+| `SITECHECK_SITE_TITLE`      | `SiteCheck Status`  | Site title                                                      |
+| `SITECHECK_RETENTION_DAYS`  | `90`                | Days of history to keep                                         |
+| `SITECHECK_GRAPH_WINDOWS`   | `24,168,720`        | Sparkline windows in hours                                      |
+| `SITECHECK_NTFY_SERVER`     | *(empty)*           | ntfy server URL including topic, e.g. `https://ntfy.sh/mytopic` |
+
+
+### Outpost (`scoutpost`)
+
+Outposts run in one of two modes: CGI mode, or server mode.
+
+In CGI mode the scoutpost binary is a plain CGI program, and needs to be fronted with some sort of server, proxy, etc
+that can run CGI binaries. Make sure you set the resource directory, and use a token if exposed to the internet!
+
+In server mode, scoutpost creates a long running server process that listens for get requests on any path routed to it
+(assuming the bearer token is correct). There is no TLS or anything, so if this is going to be routed over the internet,
+make sure you put it behind a proxy and use a good token! The output is streaming JSONL, if that matters for any reason.
+In server mode, you probably want to run it as a system service or something.
+
+
+| Variable                    | Default     | Description                        |
+|-----------------------------|-------------|------------------------------------|
+| `SITECHECK_TOKEN`           | *(empty)*   | Bearer token required from callers |
+| `SITECHECK_RESOURCES_DIR`   | `resources` | Check scripts directory            |
+| `SITECHECK_WORKERS`         | `4`         | Concurrent Lua check workers       |
+| `SITECHECK_LISTEN`          | `:8080`     | Listen address (server mode only)  |
+| `SITECHECK_DEFAULT_TIMEOUT` | `30`        | Check timeout (seconds)            |
+
+
+## Linking Outposts
+
+To tell the core application where its outposts are, you can create outpost scripts. These are .lua files that contain
+a `meta()` function that must return a table that has information about the outpost.
+
+
+```lua
+{
+    name        = "Example",
+    url         = "https://example.com/cgi-bin/scoutpost",
+    token       = "changeme",
+    skip        = false,
+    notify_down = true,
+}
 ```
+
+`name` is a user friendly name, used when reporting an outpost outage, etc. `url`, is the outpost URL. Simple. `token`
+is the bearer token needed to talk to the outpost. The same token you give to the outpost via `SITECHECK_TOKEN`. If
+`skip` is true, the outpost is skipped. Use for disabling and outpost if you need to, but don't want to remove it for
+some reason. `notify_down`, if true, tells the core application to send a notification if it can't talk to the outpost.
+This defaults to true, and you probably want to leave it that way.
+
+Speaking of if an outpost is down... If an outpost id down, the core application will look through its historical data
+to find all the resources that have reports from the downed outpost, if it finds any it will insert a dummy report
+with the special "unknown" status. This report will show up on the generated site, but shouldn't be counted as a state
+transition for notification purposes.
+
 
 ## Writing Check Scripts
 
@@ -63,9 +130,9 @@ skip defaults to false, and everything else defaults to an empty string.
     description = "An example description",
     skip        = false,
     notify      = {
-        pass     = "<your ntfy topic>",
-        degraded = "<your ntfy topic>",
-        fail     = "<your ntfy topic>",
+        pass     = true
+        degraded = true,
+        fail     = true,
     },
 }
 ```
@@ -73,9 +140,9 @@ skip defaults to false, and everything else defaults to an empty string.
 `skip`, if true, causes the script to be skipped as if it didn't exist. This is just here so I can ship a ton of example
 scripts without making you delete them all, and so that you can disable a script quickly and nondestructively if you like.
 
-The values in the `notify` table are topics for ntfy. If these are provided, when the state of the resource transitions
-from any state to the state the topic is for, there will be a message sent to the provided topic. Repeated occurrences
-of the same state do not trigger notifications.
+The values in the `notify` table are boolean flags. If these are true, when the state of the resource transitions
+from any state to the state the topic is for, there will be a message sent to the ntfy server if it is configured.
+Repeated occurrences of the same state do not trigger notifications.
 
 
 ### Pass Constants

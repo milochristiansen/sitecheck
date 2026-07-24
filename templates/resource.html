@@ -9,7 +9,7 @@
     <div class="detail-header">
         <div class="status-banner error">
             <span class="status-dot error"></span>
-            <span class="status-text">ERROR</span>
+            <span class="status-text">UNKNOWN</span>
         </div>
         <div class="detail-title">
             <h1>{{.Name}}</h1>
@@ -21,8 +21,6 @@
         </div>
         {{end}}
     </div>
-
-    <p class="no-data">Check execution failed. No data available.</p>
     {{else}}
     <div class="detail-header">
         <div class="status-banner {{statusClass .Pass}}">
@@ -42,7 +40,9 @@
         </div>
         {{end}}
     </div>
+    {{end}}
 
+    {{if .TotalChecks}}
     <div class="stats-grid">
         <div class="stat-card">
             <span class="stat-value">{{formatPct .Uptime24h}}</span>
@@ -73,6 +73,7 @@
             <span class="stat-label">Total Checks</span>
         </div>
     </div>
+    {{end}}
 
     {{if .Charts}}
     <section class="charts-section">
@@ -91,6 +92,40 @@
     </section>
     {{end}}
 
+    {{if eq .CheckType "outpost"}}
+    {{if .DurationCharts}}
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span class="stat-value">{{formatDuration .DurationAvgMS}}</span>
+            <span class="stat-label">Avg Run Time</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatDuration .DurationMinMS}}</span>
+            <span class="stat-label">Min Run Time</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatDuration .DurationMaxMS}}</span>
+            <span class="stat-label">Max Run Time</span>
+        </div>
+    </div>
+
+    <section class="charts-section">
+        <h2>Run Time</h2>
+        <div class="chart-tabs">
+            {{range .GraphWindows}}
+            {{$w := .}}
+            {{if index $.DurationCharts $w}}
+            <div class="chart-panel" id="chart-dur-{{$w}}h">
+                <h3>Last {{$w}}h</h3>
+                {{index $.DurationCharts $w}}
+            </div>
+            {{end}}
+            {{end}}
+        </div>
+    </section>
+    {{end}}
+    {{end}}
+
     <section class="latest-check">
         <h2>Latest Check</h2>
         {{if .LatestCheck}}
@@ -106,6 +141,8 @@
             {{template "check_ssl_body" .LatestCheck}}
         {{else if eq .CheckType "systemd"}}
             {{template "check_systemd_body" .LatestCheck}}
+        {{else if eq .CheckType "outpost"}}
+            {{template "check_outpost_body" .LatestCheck}}
         {{end}}
         {{else}}
         <p class="no-data">No check data available.</p>
@@ -139,9 +176,12 @@
             {{range .RecentChecks}}
                 {{template "check_systemd_row" .}}
             {{end}}
+        {{else if eq .CheckType "outpost"}}
+            {{range .RecentChecks}}
+                {{template "check_outpost_row" .}}
+            {{end}}
         {{end}}
     </section>
-    {{end}}
     {{end}}
 </div>
 {{end}}
@@ -272,6 +312,26 @@
     <div class="field"><span class="k">Not Before</span><span class="v">{{if .NotBefore}}{{.NotBefore}}{{else}}—{{end}}</span></div>
     <div class="field"><span class="k">Not After</span><span class="v">{{if .NotAfter}}{{.NotAfter}}{{else}}—{{end}}</span></div>
     <div class="field"><span class="k">Days Remaining</span><span class="v {{if lt .DaysRemaining 30}}warn{{end}}">{{.DaysRemaining}}</span></div>
+    <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
+    {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{/* ── Outpost row ────────────────────────────────────────────────────── */}}
+{{define "check_outpost_row"}}
+<details class="{{statusClass .Pass}}">
+    <summary><span class="ts">{{.Timestamp}}</span> — <span class="{{statusClass .Pass}}">{{passName .Pass}}</span> — {{.CheckCount}} checks, {{.FailCount}} failed — {{formatDuration .ResponseTimeMS}}</summary>
+    {{template "check_outpost_body" .}}
+</details>
+{{end}}
+
+{{/* ── Outpost body ───────────────────────────────────────────────────── */}}
+{{define "check_outpost_body"}}
+<div class="check-detail-grid">
+    <div class="field"><span class="k">Response Time</span><span class="v">{{formatDuration .ResponseTimeMS}}</span></div>
+    <div class="field"><span class="k">Run Time</span><span class="v">{{formatDurationMS .DurationMS}}</span></div>
+    <div class="field"><span class="k">Checks Run</span><span class="v">{{.CheckCount}}</span></div>
+    <div class="field"><span class="k">Failed / Degraded</span><span class="v">{{.FailCount}}</span></div>
     <div class="field"><span class="k">Timestamp</span><span class="v">{{.Timestamp}}</span></div>
     {{if .Error}}<div class="field error"><span class="k">Error</span><span class="v">{{.Error}}</span></div>{{end}}
 </div>
