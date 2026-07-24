@@ -60,7 +60,7 @@ outposts that you can play with if you want.
 
 ### Outpost (`scoutpost`)
 
-Outposts run in one of two modes: CGI mode, or server mode.
+Outposts run in one of two modes: CGI (1.1) mode, or server mode.
 
 In CGI mode the scoutpost binary is a plain CGI program, and needs to be fronted with some sort of server, proxy, etc
 that can run CGI binaries. Make sure you set the resource directory, and use a token if exposed to the internet!
@@ -69,6 +69,10 @@ In server mode, scoutpost creates a long running server process that listens for
 (assuming the bearer token is correct). There is no TLS or anything, so if this is going to be routed over the internet,
 make sure you put it behind a proxy and use a good token! The output is streaming JSONL, if that matters for any reason.
 In server mode, you probably want to run it as a system service or something.
+
+The outpost determines what mode it should be in by looking for the `GATEWAY_INTERFACE` environment variable. This
+variable is part of the CGI spec, so if your server is wildly out of spec and doesn't send this you will have to work
+around that (probably by fixing your server). 
 
 
 | Variable                    | Default     | Description                        |
@@ -344,6 +348,21 @@ Returns:
 | `Combined`       | string | interleaved stdout+stderr (truncated to 64 KiB)|
 | `ResponseTimeMS` | float  | wall-clock milliseconds                        |
 | `Error`          | string | execution error (timeout, not found, etc.)     |
+
+
+### Other Custom Lua APIs
+
+The resource check scripts load the Lua standard library as implemented by [the VM I am using](https://github.com/milochristiansen/lua),
+which means there are a few minor things missing. Nothing that should matter, outside of a few features of the string
+package. There is a full list of differences from standard Lua 5.3 in the readme for the VM.
+
+Outside of that, there are also a few fully custom APIs provided to help do checks, these are listed here:
+
+
+**`json.parse(string)`** and **`json.encode(value)`**
+
+Parse or encode JSON. This should work pretty much exactly how you would expect. Generally these go to/from table values.
+Look it's a JSON parser, it's not that complicated.
 
 
 ## Generated Site
