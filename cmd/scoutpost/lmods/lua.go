@@ -12,7 +12,9 @@ import (
 	"github.com/milochristiansen/lua/lmodpackage"
 	"github.com/milochristiansen/lua/lmodstring"
 	"github.com/milochristiansen/lua/lmodtable"
+	"github.com/milochristiansen/lua/lmodutf8"
 
+	"sitecheck/cmd/scoutpost/lmods/lmodjson"
 	"sitecheck/checktypes/registry"
 	"sitecheck/protocol"
 )
@@ -34,6 +36,10 @@ func NewState(defaultTimeout int) (*lua.State, error) {
 		l.Push(lmodtable.Open)
 		l.Call(0, 0)
 		l.Push(lmodmath.Open)
+		l.Call(0, 0)
+		l.Push(lmodutf8.Open)
+		l.Call(0, 0)
+		l.Push(lmodjson.Open)
 		l.Call(0, 0)
 
 		l.Push(int64(protocol.PASS))
