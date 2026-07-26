@@ -4,7 +4,7 @@
     <span class="count up">{{.UpCount}} up</span>
     <span class="count degraded">{{.DegradedCount}} degraded</span>
     <span class="count down">{{.DownCount}} down</span>
-    {{if .UnknownCount}}<span class="count unknown">{{.UnknownCount}} unknown</span>{{end}}
+    <span class="count unknown">{{.UnknownCount}} unknown</span>
 </div>
 
 <div class="resource-grid">
@@ -44,6 +44,7 @@
         {{if .Sparkline}}
         <div class="card-sparkline">{{.Sparkline}}</div>
         {{end}}
+        {{if .OutpostName}}<div class="card-outpost">(<span class="outpost-label">outpost:</span> <a href="resources/{{.OutpostSlug}}.html">{{.OutpostName}}</a>)</div>{{end}}
     </div>
 {{end}}
 </div>

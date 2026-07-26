@@ -66,7 +66,7 @@ func NewPool(n int, defaultTimeout int) *Pool {
 			defer p.wg.Done()
 			l, err := lmods.NewState(defaultTimeout)
 			if err != nil {
-				p.results <- protocol.WireResult{Error: fmt.Sprintf("create lua state: %v", err)}
+				p.results <- protocol.WireResult{CheckType: protocol.CheckTypeLuaError, Error: fmt.Sprintf("create lua state: %v", err)}
 				return
 			}
 			for job := range p.jobs {
@@ -82,6 +82,7 @@ func NewPool(n int, defaultTimeout int) *Pool {
 						NotifyPass:     job.Resource.NotifyPass,
 						NotifyDegraded: job.Resource.NotifyDegraded,
 						NotifyFail:     job.Resource.NotifyFail,
+						CheckType:      protocol.CheckTypeLuaError,
 						Error:          err.Error(),
 					}
 					continue
@@ -95,6 +96,7 @@ func NewPool(n int, defaultTimeout int) *Pool {
 						NotifyPass:     job.Resource.NotifyPass,
 						NotifyDegraded: job.Resource.NotifyDegraded,
 						NotifyFail:     job.Resource.NotifyFail,
+						CheckType:      protocol.CheckTypeLuaError,
 						Error:          err.Error(),
 					}
 					continue
@@ -203,6 +205,7 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			NotifyPass:     res.NotifyPass,
 			NotifyDegraded: res.NotifyDegraded,
 			NotifyFail:     res.NotifyFail,
+			CheckType:      protocol.CheckTypeLuaError,
 			Error:          fmt.Sprintf("resource %s: check() function not found", res.Slug),
 		}
 	}
@@ -223,6 +226,7 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			NotifyDegraded: res.NotifyDegraded,
 			NotifyFail:     res.NotifyFail,
 			ElapsedMS:      elapsed.Milliseconds(),
+			CheckType:      protocol.CheckTypeLuaError,
 			Error:          err.Error(),
 		}
 	}
@@ -237,6 +241,7 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			NotifyDegraded: res.NotifyDegraded,
 			NotifyFail:     res.NotifyFail,
 			ElapsedMS:      elapsed.Milliseconds(),
+			CheckType:      protocol.CheckTypeLuaError,
 			Error:          "check() did not return userdata",
 		}
 	}
@@ -254,6 +259,7 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			NotifyDegraded: res.NotifyDegraded,
 			NotifyFail:     res.NotifyFail,
 			ElapsedMS:      elapsed.Milliseconds(),
+			CheckType:      protocol.CheckTypeLuaError,
 			Error:          fmt.Sprintf("check() result type %T does not implement CheckResult", raw),
 		}
 	}
@@ -268,6 +274,7 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			NotifyDegraded: res.NotifyDegraded,
 			NotifyFail:     res.NotifyFail,
 			ElapsedMS:      elapsed.Milliseconds(),
+			CheckType:      protocol.CheckTypeLuaError,
 			Error:          fmt.Sprintf("unknown check type %q", cr.CheckType()),
 		}
 	}

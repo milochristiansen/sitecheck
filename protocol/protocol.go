@@ -18,6 +18,10 @@ const (
 	FAIL     = 0
 	DEGRADED = 1
 	PASS     = 2
+
+	// CheckTypeLuaError is the sentinel CheckType returned by an outpost when a Lua check script
+	// encountered a runtime error. The core resolves the real type from DB history.
+	CheckTypeLuaError = "_lua_error"
 )
 
 // --- CheckResult interface --------------------------------------------------

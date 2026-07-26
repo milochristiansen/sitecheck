@@ -41,6 +41,9 @@
     </div>
     {{end}}
     {{end}}
+    {{if and .OutpostName (ne .CheckType "outpost")}}
+    <div class="detail-outpost">Hosting Outpost: <a href="{{.OutpostSlug}}.html">{{.OutpostName}}</a></div>
+    {{end}}
 
     {{if .TotalChecks}}
     <div class="stats-grid">
@@ -73,6 +76,16 @@
             <span class="stat-label">Total Checks</span>
         </div>
     </div>
+    {{end}}
+    {{if and (eq .CheckType "outpost") .Resources}}
+    <section class="outpost-resources">
+        <h2>Resources</h2>
+        <ul class="resource-dot-list">
+            {{range .Resources}}
+            <li><span class="status-dot inline {{statusClass .Pass}}"></span> <a href="{{.Slug}}.html">{{.Name}}</a>{{if .CheckType}} <span class="check-type">{{.CheckType}}</span>{{end}}</li>
+            {{end}}
+        </ul>
+    </section>
     {{end}}
 
     {{if .Charts}}

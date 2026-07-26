@@ -28,14 +28,16 @@ type IndexData struct {
 
 // ResourceCard holds per-resource display data for the overview page.
 type ResourceCard struct {
-	Slug       string
-	Name       string
-	CheckType  string
-	Pass       int // 2=pass, 1=degraded, 0=fail, -1=no data
-	ResponseMS float64
-	Uptime24h  float64
-	Sparkline  template.HTML
-	FailReason string
+	Slug        string
+	Name        string
+	CheckType   string
+	Pass        int // 2=pass, 1=degraded, 0=fail, -1=no data
+	ResponseMS  float64
+	Uptime24h   float64
+	Sparkline   template.HTML
+	FailReason  string
+	OutpostSlug string
+	OutpostName string
 }
 
 // RenderedCheck holds a pre-identified check with template dispatch info.
@@ -43,6 +45,14 @@ type RenderedCheck struct {
 	RowTemplateName  string
 	BodyTemplateName string
 	Data             interface{}
+}
+
+// OutpostResource is a summary of a resource belonging to an outpost, for the outpost detail page.
+type OutpostResource struct {
+	Name      string
+	Slug      string
+	Pass      int    // 2=pass, 1=degraded, 0=fail, -1=unknown
+	CheckType string
 }
 
 // ResourcePage holds all data for a resource detail page.
@@ -58,6 +68,8 @@ type ResourcePage struct {
 	Pass         int
 	FailReason   string
 	ResponseMS   float64
+	OutpostSlug  string
+	OutpostName  string
 
 	// Stats (response time)
 	Uptime24h     float64
@@ -84,6 +96,9 @@ type ResourcePage struct {
 	// Recent checks for the collapsible table.
 	RecentChecks []RenderedCheck
 	RecentCount  int
+
+	// Resources belonging to this outpost (outpost detail page only).
+	Resources []OutpostResource
 }
 
 // SiteResult carries the data sitegen needs for a single resource.
@@ -97,6 +112,7 @@ type SiteResult struct {
 	ResponseMS  float64
 	Err         string
 	OutpostSlug string
+	OutpostName string
 	History     interface{} // typed DB check slice, populated by caller
 }
 
@@ -124,6 +140,7 @@ func Generate(cfg *Config, results []SiteResult) error {
 		return fmt.Errorf("parse index templates: %w", err)
 	}
 
+
 	_ = baseFiles // unused for detail — writeDetailPage parses its own template set
 
 	// --- Overview page ---
@@ -134,6 +151,16 @@ func Generate(cfg *Config, results []SiteResult) error {
 		} else {
 			resourceResults = append(resourceResults, r)
 		}
+	}
+	// Build a map of outpost slug -> resources for outpost detail pages.
+	outpostResources := make(map[string][]OutpostResource)
+	for _, r := range resourceResults {
+		outpostResources[r.OutpostSlug] = append(outpostResources[r.OutpostSlug], OutpostResource{
+			Name:      r.Name,
+			Slug:      r.OutpostSlug + "-" + r.Slug,
+			Pass:      r.Pass,
+			CheckType: r.CheckType,
+		})
 	}
 	resourceCards := buildCards(resourceResults)
 	outpostCards := buildCards(outpostResults)
@@ -168,6 +195,9 @@ func Generate(cfg *Config, results []SiteResult) error {
 	resourcesDir := filepath.Join(cfg.OutputDir, "resources")
 	for _, r := range results {
 		page := buildResourcePage(cfg, r)
+		if r.CheckType == "outpost" {
+			page.Resources = outpostResources[r.Slug]
+		}
 		if err := writeDetailPage(resourcesDir, page); err != nil {
 			return err
 		}
@@ -179,13 +209,19 @@ func Generate(cfg *Config, results []SiteResult) error {
 func buildCards(results []SiteResult) []ResourceCard {
 	cards := make([]ResourceCard, 0, len(results))
 	for _, r := range results {
+		slug := r.Slug
+		if r.CheckType != "outpost" {
+			slug = r.OutpostSlug + "-" + r.Slug
+		}
 		card := ResourceCard{
-			Slug:       r.OutpostSlug + "-" + r.Slug,
-			Name:       r.Name,
-			CheckType:  r.CheckType,
-			Pass:       r.Pass,
-			ResponseMS: r.ResponseMS,
-			FailReason: r.FailReason,
+			Slug:        slug,
+			Name:        r.Name,
+			CheckType:   r.CheckType,
+			Pass:        r.Pass,
+			ResponseMS:  r.ResponseMS,
+			FailReason:  r.FailReason,
+			OutpostSlug: r.OutpostSlug,
+			OutpostName: r.OutpostName,
 		}
 		if r.Err != "" && card.FailReason == "" {
 			card.FailReason = r.Err
@@ -221,15 +257,21 @@ func countStatuses(cards []ResourceCard) (up, degraded, down, unknown int) {
 
 // buildResourcePage constructs a ResourcePage from a single Result.
 func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
+	slug := r.Slug
+	if r.CheckType != "outpost" {
+		slug = r.OutpostSlug + "-" + r.Slug
+	}
 	page := ResourcePage{
 		Title:        r.Name + " — " + cfg.SiteTitle,
 		SiteTitle:    cfg.SiteTitle,
 		Generated:    time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
 		StaticPrefix: "../static/",
-		Slug:         r.OutpostSlug + "-" + r.Slug,
+		Slug:         slug,
 		Name:         r.Name,
 		Description:  r.Desc,
 		GraphWindows: cfg.GraphWindows,
+		OutpostSlug:  r.OutpostSlug,
+		OutpostName:  r.OutpostName,
 	}
 
 	page.CheckType = r.CheckType

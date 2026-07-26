@@ -162,8 +162,22 @@ a:hover {
 
 /* --- sparkline --- */
 .card-sparkline {
-    padding: 0.25rem 1rem 0.75rem;
+    padding: 0.25rem 1rem 0;
     text-align: center;
+}
+
+/* --- outpost attribution --- */
+.card-outpost {
+    padding: 0 1rem 0.75rem;
+    font-size: 0.75rem;
+    color: #475569;
+    text-align: right;
+}
+.card-outpost .outpost-label {
+    opacity: 0.7;
+}
+.card-outpost a {
+    color: #64748b;
 }
 
 /* --- empty state --- */
@@ -233,6 +247,15 @@ main {
 .fail-reason-banner.error {
     background: #3b1f6e;
     color: #c4b5fd;
+}
+
+.detail-outpost {
+    margin: -0.5rem 0 0.75rem 0;
+    font-size: 0.875rem;
+    color: #64748b;
+}
+.detail-outpost a {
+    color: #94a3b8;
 }
 
 /* --- stats grid --- */
@@ -396,6 +419,42 @@ main {
 /* --- outpost section --- */
 .outpost-section {
     margin-top: 2rem;
+}
+.outpost-section .card-sparkline {
+    padding-bottom: 0.75rem;
+}
+
+/* --- outpost resource list (detail page) --- */
+.outpost-resources {
+    margin-bottom: 2rem;
+}
+.outpost-resources h2 {
+    font-size: 1.125rem;
+    color: #e2e8f0;
+    margin: 0 0 0.75rem 0;
+}
+.resource-dot-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+}
+.resource-dot-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.875rem;
+}
+.resource-dot-list a {
+    color: #cbd5e1;
+}
+.status-dot.inline {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
 }
 .section-title {
     padding: 0 2rem;

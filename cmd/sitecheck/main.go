@@ -130,6 +130,7 @@ func main() {
 						Pass:        pass,
 						Err:         errMsg,
 						OutpostSlug: pr.OutpostSlug,
+						OutpostName: pr.OutpostName,
 					})
 				}
 			}
@@ -139,11 +140,21 @@ func main() {
 		// Normal result from a working outpost.
 		wr := pr.WireResult
 		compositeSlug := wr.OutpostSlug + "-" + wr.Slug
+		// Resolve sentinel check type from DB history.
+		if wr.CheckType == protocol.CheckTypeLuaError {
+			wr.Pass = UNKNOWN
+			if typ, ok := database.LookupCheckType(wr.Slug, wr.OutpostSlug); ok {
+				wr.CheckType = typ
+			} else {
+				wr.CheckType = "http"
+			}
+		}
+
 
 		prevPass, hasPrev, _ := database.LastPass(wr.Slug, wr.OutpostSlug, wr.CheckType)
 
 		currentPass := wr.Pass
-		if wr.Error != "" {
+		if wr.Error != "" && currentPass != UNKNOWN {
 			currentPass = protocol.FAIL
 		}
 
@@ -174,6 +185,7 @@ func main() {
 			ResponseMS:  wr.ResponseMS,
 			Err:         wr.Error,
 			OutpostSlug: wr.OutpostSlug,
+			OutpostName: pr.OutpostName,
 		})
 	}
 

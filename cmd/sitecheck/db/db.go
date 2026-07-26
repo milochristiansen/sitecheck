@@ -128,6 +128,24 @@ func (db *DB) DistinctSlugsByOutpost(outpostSlug string) ([]SlugType, error) {
 	return result, nil
 }
 
+// LookupCheckType returns the check type for a given slug+outpostSlug by scanning all check tables.
+// Returns ("", false) if no prior history exists.
+func (db *DB) LookupCheckType(slug, outpostSlug string) (string, bool) {
+	for _, p := range registry.All() {
+		var count int
+		if err := db.QueryRow(
+			"SELECT COUNT(*) FROM "+p.TableName()+" WHERE slug = ? AND outpost_slug = ?",
+			slug, outpostSlug,
+		).Scan(&count); err != nil {
+			continue
+		}
+		if count > 0 {
+			return p.TypeName(), true
+		}
+	}
+	return "", false
+}
+
 // SlugType is a slug / check-type pair returned by DistinctSlugsByOutpost.
 type SlugType struct {
 	Slug string

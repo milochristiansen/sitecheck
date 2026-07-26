@@ -13,6 +13,7 @@ import (
 // PoolResult carries a single result from an outpost, or an error indicating the outpost as a whole failed.
 type PoolResult struct {
 	OutpostSlug string
+	OutpostName string
 	WireResult  *protocol.WireResult // nil when outpost failed
 	Err         error                // non-nil when the outpost client failed
 }
@@ -49,7 +50,7 @@ func runOutpostPool(outposts []OutpostDef, cfg *Config) <-chan PoolResult {
 			start := time.Now()
 			resultCh, err := client.Run()
 			if err != nil {
-				ch <- PoolResult{OutpostSlug: o.Slug, Err: err}
+				ch <- PoolResult{OutpostSlug: o.Slug, OutpostName: o.Name, Err: err}
 				return
 			}
 
@@ -62,7 +63,7 @@ func runOutpostPool(outposts []OutpostDef, cfg *Config) <-chan PoolResult {
 				}
 				wr.OutpostSlug = o.Slug
 				wrCopy := wr
-				ch <- PoolResult{OutpostSlug: o.Slug, WireResult: &wrCopy}
+				ch <- PoolResult{OutpostSlug: o.Slug, OutpostName: o.Name, WireResult: &wrCopy}
 				totalChecks++
 				if wr.Pass != protocol.PASS {
 					failCount++
@@ -82,7 +83,7 @@ func runOutpostPool(outposts []OutpostDef, cfg *Config) <-chan PoolResult {
 				FailCount:      failCount,
 			})
 			ch <- PoolResult{
-				OutpostSlug: o.Slug,
+				OutpostSlug: o.Slug, OutpostName: o.Name,
 				WireResult: &protocol.WireResult{
 					Slug:        o.Slug,
 					Name:        o.Name,
