@@ -53,7 +53,7 @@ func main() {
 	}
 
 	// Scan remote outpost definitions from outposts/ directory.
-	remoteOutposts, err := scanOutposts()
+	remoteOutposts, err := scanOutposts(cfg.OutpostsDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Outpost scan error: %v\n", err)
 		os.Exit(1)

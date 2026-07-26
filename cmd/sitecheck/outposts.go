@@ -20,15 +20,14 @@ type OutpostDef struct {
 	NotifyDown bool
 }
 
-// scanOutposts reads outpost definitions from outposts/*.lua. The local outpost is NOT included here — it is added
-// unconditionally by the caller.
-func scanOutposts() ([]OutpostDef, error) {
-	entries, err := os.ReadDir("outposts")
+// scanOutposts reads outpost definitions from .lua files in dir.
+func scanOutposts(dir string) ([]OutpostDef, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("read outposts dir: %w", err)
+		return nil, fmt.Errorf("read outposts dir %q: %w", dir, err)
 	}
 
 	var outposts []OutpostDef
@@ -42,7 +41,7 @@ func scanOutposts() ([]OutpostDef, error) {
 		}
 		slug := entry.Name()[:len(entry.Name())-4] // strip .lua
 
-		def, err := loadOutpostDef(slug, filepath.Join("outposts", entry.Name()))
+		def, err := loadOutpostDef(slug, filepath.Join(dir, entry.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("outpost %s: %w", slug, err)
 		}

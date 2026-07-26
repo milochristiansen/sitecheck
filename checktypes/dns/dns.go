@@ -1,0 +1,328 @@
+// Package dns implements registry.CheckPlugin for DNS resolution checks.
+package dns
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net"
+	"time"
+
+	"github.com/milochristiansen/lua"
+	"sitecheck/checktypes/registry"
+	"sitecheck/protocol"
+)
+
+// DNSResult is the result of a DNS lookup check. It implements protocol.CheckResult.
+type DNSResult struct {
+	Pass           int
+	FailReason     string
+	Host           string
+	IPs    string
+	ResponseTimeMS float64
+	Error          string
+}
+
+func (r *DNSResult) CheckType() string       { return "dns" }
+func (r *DNSResult) CheckPass() int           { return r.Pass }
+func (r *DNSResult) CheckFailReason() string  { return r.FailReason }
+func (r *DNSResult) CheckResponseMS() float64 { return r.ResponseTimeMS }
+
+// DNSCheck is a database row from checks_dns.
+type DNSCheck struct {
+	ID             int64
+	Slug           string
+	OutpostSlug    string
+	Timestamp      string
+	DurationMS     int64
+	Pass           int
+	ResponseTimeMS float64
+	Host           string
+	IPs    string
+	Error          string
+}
+
+type impl struct{}
+
+func (impl) TypeName() string { return "dns" }
+
+func (impl) TableName() string { return "checks_dns" }
+
+func (impl) CreateTableDDL() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS checks_dns (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			slug            TEXT NOT NULL,
+			outpost_slug    TEXT NOT NULL DEFAULT '',
+			timestamp       TEXT DEFAULT (datetime('now')),
+			duration_ms     INTEGER,
+			pass            INTEGER NOT NULL,
+			response_time_ms REAL,
+			host            TEXT NOT NULL,
+			ips    TEXT,
+			error           TEXT
+		)`,
+		`ALTER TABLE checks_dns ADD COLUMN outpost_slug TEXT NOT NULL DEFAULT ''`,
+	}
+}
+
+func (impl) CreateIndexDDL() []string {
+	return []string{
+		`CREATE INDEX IF NOT EXISTS idx_checks_dns_slug_time ON checks_dns(slug, timestamp)`,
+	}
+}
+
+func (impl) Insert(db *sql.DB, slug, outpostSlug string, elapsedMS int64, data json.RawMessage) error {
+	var r DNSResult
+	if err := json.Unmarshal(data, &r); err != nil {
+		return fmt.Errorf("unmarshal dns data: %w", err)
+	}
+	_, err := db.Exec(
+		`INSERT INTO checks_dns
+			(slug, outpost_slug, duration_ms, pass, response_time_ms, host, ips, error)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		slug, outpostSlug, elapsedMS, r.Pass, r.ResponseTimeMS,
+		r.Host, r.IPs, r.Error,
+	)
+	if err != nil {
+		return fmt.Errorf("insert dns check: %w", err)
+	}
+	return nil
+}
+
+func (impl) InsertError(db *sql.DB, slug, outpostSlug string, elapsedMS int64, pass int, errMsg string) error {
+	_, err := db.Exec(
+		`INSERT INTO checks_dns
+			(slug, outpost_slug, duration_ms, pass, response_time_ms, host, ips, error)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		slug, outpostSlug, elapsedMS, pass, 0.0, "(error)", "", errMsg,
+	)
+	if err != nil {
+		return fmt.Errorf("insert dns check error: %w", err)
+	}
+	return nil
+}
+
+func (impl) QuerySince(db *sql.DB, slug, outpostSlug string, since time.Time) (interface{}, error) {
+	sinceStr := since.UTC().Format("2006-01-02 15:04:05")
+	rows, err := db.Query(
+		`SELECT id, slug, timestamp, duration_ms, pass, response_time_ms,
+			host, ips, error
+		FROM checks_dns WHERE slug = ? AND outpost_slug = ? AND timestamp >= ? ORDER BY timestamp`,
+		slug, outpostSlug, sinceStr,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query dns checks since: %w", err)
+	}
+	defer rows.Close()
+
+	var checks []DNSCheck
+	for rows.Next() {
+		var (
+			c          DNSCheck
+			durationMS sql.NullInt64
+			responseMS sql.NullFloat64
+			host       sql.NullString
+			resolvedIP sql.NullString
+			errMsg     sql.NullString
+		)
+		err := rows.Scan(&c.ID, &c.Slug, &c.Timestamp, &durationMS, &c.Pass,
+			&responseMS, &host, &resolvedIP, &errMsg,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan dns check since: %w", err)
+		}
+		c.DurationMS = durationMS.Int64
+		c.ResponseTimeMS = responseMS.Float64
+		c.Host = host.String
+		c.IPs = resolvedIP.String
+		c.Error = errMsg.String
+		checks = append(checks, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows dns check since: %w", err)
+	}
+	return checks, nil
+}
+
+func (impl) ExtractPoints(history interface{}) []registry.CheckPoint {
+	h, ok := history.([]DNSCheck)
+	if !ok {
+		return nil
+	}
+	pts := make([]registry.CheckPoint, len(h))
+	for i, c := range h {
+		pts[i] = registry.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
+	}
+	return pts
+}
+
+func (impl) ExtractDurationPoints(history interface{}) []registry.CheckPoint {
+	return nil
+}
+
+func (impl) LatestRecent(history interface{}, maxRecent int) (latest, recent interface{}, count int) {
+	h, ok := history.([]DNSCheck)
+	if !ok || len(h) == 0 {
+		return nil, nil, 0
+	}
+	latest = &h[len(h)-1]
+	if len(h) == 1 {
+		return latest, nil, 0
+	}
+	n := len(h) - 1
+	if n > maxRecent {
+		n = maxRecent
+	}
+	reversed := make([]DNSCheck, n)
+	for i := range n {
+		reversed[i] = h[len(h)-2-i]
+	}
+	return latest, reversed, n
+}
+
+func (impl) RegisterLua(l *lua.State, defaultTimeout int) {
+	l.Push(func(l *lua.State) int {
+		host := l.ToString(1)
+
+		timeout := defaultTimeout
+		if !l.IsNil(2) && l.TypeOf(2) == lua.TypTable {
+			timeout = readIntOpt(l, 2, "timeout", defaultTimeout)
+		}
+
+		r := &DNSResult{
+			Pass: protocol.FAIL,
+			Host: host,
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		start := time.Now()
+		addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+		elapsed := time.Since(start)
+		r.ResponseTimeMS = float64(elapsed.Microseconds()) / 1000.0
+
+		if err != nil {
+			r.Error = err.Error()
+			pushDNSResult(l, r)
+			return 1
+		}
+
+		// Join resolved IPs into a comma-separated string for storage.
+		for i, ip := range addrs {
+			if i > 0 {
+				r.IPs += ", "
+			}
+			r.IPs += ip
+		}
+
+		pushDNSResult(l, r)
+		return 1
+	})
+	l.SetGlobal("dns_lookup")
+}
+
+func pushDNSResult(l *lua.State, r *DNSResult) {
+	l.Push(r)
+	l.NewTable(0, 2)
+
+	l.Push("__index")
+	l.Push(func(l *lua.State) int {
+		r := l.ToUser(1).(*DNSResult)
+		switch l.ToString(2) {
+		case "Pass":
+			l.Push(int64(r.Pass))
+		case "FailReason":
+			pushStr(l, r.FailReason)
+		case "Host":
+			l.Push(r.Host)
+		case "IPs":
+			pushStr(l, r.IPs)
+		case "ResponseTimeMS":
+			l.Push(r.ResponseTimeMS)
+		case "Error":
+			pushStr(l, r.Error)
+		default:
+			l.Push(nil)
+		}
+		return 1
+	})
+	l.SetTableRaw(-3)
+
+	l.Push("__newindex")
+	l.Push(func(l *lua.State) int {
+		r := l.ToUser(1).(*DNSResult)
+		switch l.ToString(2) {
+		case "Pass":
+			r.Pass = int(l.ToInt(3))
+		case "FailReason":
+			r.FailReason = l.ToString(3)
+		case "Host":
+			r.Host = l.ToString(3)
+		case "IPs":
+			r.IPs = l.ToString(3)
+		case "Error":
+			r.Error = l.ToString(3)
+		}
+		return 0
+	})
+	l.SetTableRaw(-3)
+
+	l.SetMetaTable(-2)
+}
+
+// Lua utility helpers.
+func readIntOpt(l *lua.State, tableIdx int, key string, def int) int {
+	abs := l.AbsIndex(tableIdx)
+	l.Push(key)
+	t := l.GetTableRaw(abs)
+	if t == lua.TypNil {
+		l.Pop(1)
+		return def
+	}
+	switch n := l.GetRaw(-1).(type) {
+	case int64:
+		l.Pop(1)
+		return int(n)
+	case float64:
+		l.Pop(1)
+		return int(n)
+	}
+	l.Pop(1)
+	return def
+}
+
+func pushStr(l *lua.State, s string) {
+	if s == "" {
+		l.Push(nil)
+	} else {
+		l.Push(s)
+	}
+}
+
+func (impl) DispatchWireResult(res registry.ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult {
+	r := cr.(*DNSResult)
+	return protocol.NewWireResult(
+		res.Slug, res.Name, res.Desc,
+		"dns",
+		r.Pass, r.FailReason,
+		r.ResponseTimeMS, elapsed.Milliseconds(),
+		r.Error,
+		r,
+		res.NotifyPass, res.NotifyDegraded, res.NotifyFail,
+	)
+}
+
+func (impl) TemplateNames() (string, string) {
+	return "check_dns_row", "check_dns_body"
+}
+
+func (impl) TemplateFiles() []string {
+	return []string{"templates/checks/dns.html"}
+}
+
+func init() {
+	registry.Register(impl{})
+}

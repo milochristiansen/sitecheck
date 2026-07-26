@@ -12,6 +12,7 @@ type Config struct {
 	OutpostBin     string
 	OutpostWorkers int
 	DefaultTimeout int
+	OutpostsDir    string
 	ResourcesDir   string
 	DBPath         string
 	TemplatesDir   string
@@ -29,6 +30,7 @@ func LoadConfig() (*Config, error) {
 		OutpostBin:     strEnv("SITECHECK_OUTPOST_BIN", "./scoutpost"),
 		OutpostWorkers: intEnv("SITECHECK_OUTPOST_WORKERS", 4),
 		DefaultTimeout: intEnv("SITECHECK_DEFAULT_TIMEOUT", 30),
+		OutpostsDir:    strEnv("SITECHECK_OUTPOSTS_DIR", "outposts"),
 		ResourcesDir:   strEnv("SITECHECK_RESOURCES_DIR", "resources"),
 		DBPath:         strEnv("SITECHECK_DB_PATH", "data/sitecheck.db"),
 		TemplatesDir:   strEnv("SITECHECK_TEMPLATES_DIR", "templates"),

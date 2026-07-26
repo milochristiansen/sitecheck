@@ -71,6 +71,7 @@ outposts that you can play with if you want.
 | `SITECHECK_OUTPOST_WORKERS` | `4`                 | Max concurrent outpost connections                              |
 | `SITECHECK_DEFAULT_TIMEOUT` | `30`                | Connection and check timeout (seconds)                          |
 | `SITECHECK_RESOURCES_DIR`   | `resources`         | Check scripts directory (passed to local outpost)               |
+| `SITECHECK_OUTPOSTS_DIR`    | `outposts`          | Outpost definitions                                             |
 | `SITECHECK_DB_PATH`         | `data/sitecheck.db` | SQLite database path                                            |
 | `SITECHECK_TEMPLATES_DIR`   | `templates`         | HTML templates directory                                        |
 | `SITECHECK_OUTPUT_DIR`      | `output`            | Static site output directory                                    |

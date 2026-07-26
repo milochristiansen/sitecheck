@@ -12,3 +12,5 @@ scoutpost
 
 # Config
 .env
+# Testing ground artifacts
+testing_ground/work/
