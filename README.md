@@ -210,7 +210,7 @@ Each of these return values have two keys you are intended to set:
 Other return values (and the function options) are documented below.
 
 
-**`http_fetch(url, opts)`**
+#### `http_fetch(url, opts)`
 
 Fetch a URL and return the response.
 
@@ -243,7 +243,7 @@ Returns:
 | `Error`           | string | R/W   | error message                   |
 
 
-**`icmp_ping(host, opts)`**
+#### `icmp_ping(host, opts)`
 
 Ping the given host. Raw ICMP needs root or similar, but on Linux/Darwin it may be possible to use a UDP thingy that
 lets you send ICMP packets via some magic BS that seems to work and I haven't really looked into the details of.
@@ -272,7 +272,7 @@ Returns:
 | `Error`           | string | R/W   | error message                   |
 
 
-**`tcp_connect(host, port, opts)`**
+#### `tcp_connect(host, port, opts)`
 
 Make a TCP connection and then close it.
 
@@ -295,7 +295,7 @@ Returns:
 | `Error`           | string | R/W   | error message                   |
 
 
-**`dns_lookup(host, opts)`**
+#### `dns_lookup(host, opts)`
 
 Lookup a host name via DNS.
 
@@ -318,7 +318,7 @@ Returns:
 | `Error`           | string | R/W   | error message                   |
 
 
-**`ssl_certificate(host, port, opts)`**
+#### `ssl_certificate(host, port, opts)`
 
 Get a site's SSL certificate.
 
@@ -346,7 +346,7 @@ Returns:
 | `Error`           | string | R/W   | error message                   |
 
 
-**`systemd_check(service, opts)`**
+#### `systemd_check(service, opts)`
 
 Query a systemd service's status via D-Bus. Requires a systemd-based Linux host and D-Bus access
 (read-only unit status is available to unprivileged users on most distributions).
@@ -372,7 +372,7 @@ Returns:
 | `Error`           | string | R/W   | error message                   |
 
 
-**`exec_command(command, args, opts)`**
+#### `exec_command(command, args, opts)`
 
 Run an arbitrary command and capture its exit code and output. The command runs directly (no shell)
 unless you invoke `sh` or similar. Output is captured in three forms: stdout-only, stderr-only, and a
@@ -410,7 +410,7 @@ package. There is a full list of differences from standard Lua 5.3 in the readme
 Outside of that, there are also a few fully custom APIs provided to help do checks, these are listed here:
 
 
-**`json.parse(string)`** and **`json.encode(value)`**
+#### `json.parse(string)` and `json.encode(value)`
 
 Parse or encode JSON. This should work pretty much exactly how you would expect. Generally these go to/from table values.
 Look it's a JSON parser, it's not that complicated.
