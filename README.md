@@ -51,6 +51,12 @@ production you will likely want to copy the binaries, templates, and static file
 set up a web server to serve the output files, whatever cron solution you want to use to schedule runs, and any other
 config you may need.
 
+For more comprehensive playing about, run `./testing_ground/run.sh setup` and then `./testing_ground/run.sh`. Every time
+you run this script it will run a simulated environment that demonstrates most of the possible status combinations for
+outposts and resources. The generated site will be in `testing_ground/work/output/`. Run the script like 5-6 times
+(after the setup step) to get some data history so your graphs aren't boring, and poke around a bit. This is a great way
+to get a feel for what various situations will end up looking like.
+
 
 ## Configuration
 
