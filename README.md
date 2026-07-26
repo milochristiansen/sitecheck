@@ -116,6 +116,30 @@ around that (probably by fixing your server).
 | `SITECHECK_DEFAULT_TIMEOUT` | `30`        | Check timeout (seconds)            |
 
 
+## Notifications
+
+Certain events will result in an attempt to send a notification. Currently, two notification providers are supported:
+Ntfy, and Telegram.
+
+The way this works is very simple, a notification will be sent for each provider that is configured. If none are
+configured, no notification is sent. This allows you to select only the provider(s) you need by just not configuring the
+one(s) you don't need.
+
+Now, what are notifications sent for? By default, a notification is sent for every major state transition, once, when
+the transition happens, while transparently ignoring transitions to and from the UNKNOWN state. This means that if a
+resource goes from PASS to FAIL a notification is sent (and vice versa), but if a resource goes from PASS to UNKNOWN
+and back to PASS no notification is sent. Since UNKNOWN is an internal state sent when an error prevents a check, this
+prevents configuration or outpost issues from spamming you with tons of spurious notifications. For example, consider
+an outpost going down. You receive an notification the outpost is down already, you don't need a million other messages
+at the same time telling you a whole bunch of resources are now unknown. On the other hand, it is still desirable to
+know if a resource is now failing when the outpost comes back up, so the case where PASS->UNKNOWN->FAIL happens you will
+be notified that the resource has started failing. UNKNOWN is transparent.
+
+This is, of course, possible to override. Both resource and outpost script can specify if they notify in their metadata.
+Once again, by default all notifications are on, so this is just there so you can turn them off if you have a reason to
+do so.
+
+
 ## Linking Outposts
 
 To tell the core application where its outposts are, you can create outpost scripts. These are .lua files that contain
