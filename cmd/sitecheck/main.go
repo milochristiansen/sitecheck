@@ -99,12 +99,15 @@ func main() {
 			// Outpost failed as a whole.
 			fmt.Fprintf(os.Stderr, "Outpost %q failed: %v\n", pr.OutpostSlug, pr.Err)
 
-			// Notify if configured.
+			// Notify on up→down transition only.
 			outpost := findOutpost(allOutposts, pr.OutpostSlug)
 			if outpost != nil && outpost.NotifyDown {
-				title := fmt.Sprintf("SiteCheck: Outpost %s DOWN", outpost.Name)
-				msg := fmt.Sprintf("Outpost %s is unreachable: %v", outpost.Name, pr.Err)
-				sender.Send(notify.Message{Title: title, Body: msg})
+				prevPass, hasPrev, _ := database.LastPass(outpost.Slug, outpost.Slug, "outpost")
+				if hasPrev && prevPass == protocol.PASS {
+					title := fmt.Sprintf("SiteCheck: Outpost %s DOWN", outpost.Name)
+					msg := fmt.Sprintf("Outpost %s is unreachable: %v", outpost.Name, pr.Err)
+					sender.Send(notify.Message{Title: title, Body: msg})
+				}
 			}
 
 			// Insert UNKNOWN rows for resources with prior history from this outpost.
@@ -182,6 +185,14 @@ func main() {
 				notifyStatusChange(sender, compositeSlug, wr.Name, reason,
 					currentPass, prevPass, hasPrev,
 					wr.NotifyPass, wr.NotifyDegraded, wr.NotifyFail)
+			} else {
+				// Outpost health check: notify on down→up transition.
+				outpost := findOutpost(allOutposts, pr.OutpostSlug)
+				if outpost != nil && outpost.NotifyDown && hasPrev && prevPass == protocol.FAIL {
+					title := fmt.Sprintf("SiteCheck: Outpost %s UP", outpost.Name)
+					msg := fmt.Sprintf("Outpost %s is reachable again", outpost.Name)
+					sender.Send(notify.Message{Title: title, Body: msg})
+				}
 			}
 		}
 
