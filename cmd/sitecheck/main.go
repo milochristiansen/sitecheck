@@ -10,6 +10,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"sitecheck/checktypes/registry"
+	"sitecheck/notify"
 	"sitecheck/protocol"
 	"sitecheck/cmd/sitecheck/db"
 
@@ -38,6 +39,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Config error: %v\n", err)
 		os.Exit(1)
 	}
+	// Build notification senders from env config.
+	var senders []notify.Sender
+	if cfg.NtfyServer != "" {
+		senders = append(senders, &notify.NtfySender{URL: cfg.NtfyServer})
+	}
+	if cfg.TelegramToken != "" && cfg.TelegramChannel != "" {
+		senders = append(senders, &notify.TelegramSender{Token: cfg.TelegramToken, Channel: cfg.TelegramChannel})
+	}
+	sender := &notify.Broadcast{Senders: senders}
 
 	// Open DB, run migrations.
 	database, err := db.Open(cfg.DBPath)
@@ -94,7 +104,7 @@ func main() {
 			if outpost != nil && outpost.NotifyDown {
 				title := fmt.Sprintf("SiteCheck: Outpost %s DOWN", outpost.Name)
 				msg := fmt.Sprintf("Outpost %s is unreachable: %v", outpost.Name, pr.Err)
-				notify(cfg.NtfyServer, title, msg)
+				sender.Send(notify.Message{Title: title, Body: msg})
 			}
 
 			// Insert UNKNOWN rows for resources with prior history from this outpost.
@@ -169,7 +179,7 @@ func main() {
 				if reason == "" {
 					reason = wr.Error
 				}
-				notifyStatusChange(cfg.NtfyServer, compositeSlug, wr.Name, reason,
+				notifyStatusChange(sender, compositeSlug, wr.Name, reason,
 					currentPass, prevPass, hasPrev,
 					wr.NotifyPass, wr.NotifyDegraded, wr.NotifyFail)
 			}

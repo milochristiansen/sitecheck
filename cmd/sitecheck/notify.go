@@ -1,47 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"net/http"
-	"time"
 
+	"sitecheck/notify"
 	"sitecheck/protocol"
 )
-
-// notify sends a plain-text notification to the ntfy server URL. The URL should be the full URL including the topic,
-// e.g. "https://ntfy.sh/mytopic". Returns silently on failure — notifications are best-effort.
-func notify(ntfyURL, title, message string) {
-	if ntfyURL == "" {
-		return
-	}
-
-	req, err := http.NewRequest("POST", ntfyURL, bytes.NewBufferString(message))
-	if err != nil {
-		fmt.Printf("  notify: request error: %v\n", err)
-		return
-	}
-	req.Header.Set("Title", title)
-	req.Header.Set("Content-Type", "text/plain")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("  notify: send error: %v\n", err)
-		return
-	}
-	resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		fmt.Printf("  notify: server returned %d\n", resp.StatusCode)
-	}
-}
 
 // notifyStatusChange sends a notification if the check status changed from prevPass to currentPass and the notify flag
 // for the new status is set. Transitions from UNKNOWN (-1) are never notified — UNKNOWN is a core-internal sentinel for
 // outpost connectivity, not a real check result.
-func notifyStatusChange(ntfyURL string, slug, name, failReason string, currentPass, prevPass int, hasPrev bool, notifyPass, notifyDegraded, notifyFail bool) {
-	if ntfyURL == "" {
+func notifyStatusChange(sender notify.Sender, slug, name, failReason string, currentPass, prevPass int, hasPrev bool, notifyPass, notifyDegraded, notifyFail bool) {
+	if sender == nil {
 		return
 	}
 	if !hasPrev {
@@ -74,7 +44,9 @@ func notifyStatusChange(ntfyURL string, slug, name, failReason string, currentPa
 	}
 	fmt.Printf("  notify: %s transition %s→%s, sending\n",
 		slug, passName(prevPass), passName(currentPass))
-	notify(ntfyURL, title, message)
+	if err := sender.Send(notify.Message{Title: title, Body: message}); err != nil {
+		fmt.Printf("  notify: send error: %v\n", err)
+	}
 }
 
 func passName(p int) string {

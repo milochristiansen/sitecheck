@@ -86,6 +86,8 @@ outposts that you can play with if you want.
 | `SITECHECK_RETENTION_DAYS`  | `90`                | Days of history to keep                                         |
 | `SITECHECK_GRAPH_WINDOWS`   | `24,168,720`        | Sparkline windows in hours                                      |
 | `SITECHECK_NTFY_SERVER`     | *(empty)*           | ntfy server URL including topic, e.g. `https://ntfy.sh/mytopic` |
+| `SITECHECK_TELEGRAM_TOKEN`  | *(empty)*           | Telegram bot token from @BotFather                              |
+| `SITECHECK_TELEGRAM_CHANNEL`| *(empty)*           | Telegram chat/channel ID (numeric or @channelname)              |
 
 
 ### Outpost (`scoutpost`)

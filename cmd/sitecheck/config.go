@@ -21,7 +21,9 @@ type Config struct {
 	SiteTitle      string
 	RetentionDays  int
 	GraphWindows   []int
-	NtfyServer     string
+	NtfyServer       string
+	TelegramToken    string
+	TelegramChannel  string
 }
 
 // LoadConfig parses configuration from environment variables.
@@ -36,10 +38,12 @@ func LoadConfig() (*Config, error) {
 		TemplatesDir:   strEnv("SITECHECK_TEMPLATES_DIR", "templates"),
 		OutputDir:      strEnv("SITECHECK_OUTPUT_DIR", "output"),
 		StaticDir:      strEnv("SITECHECK_STATIC_DIR", "static"),
-		SiteTitle:      strEnv("SITECHECK_SITE_TITLE", "SiteCheck Status"),
-		RetentionDays:  intEnv("SITECHECK_RETENTION_DAYS", 90),
-		GraphWindows:   intSliceEnv("SITECHECK_GRAPH_WINDOWS", []int{24, 168, 720}),
-		NtfyServer:     strEnv("SITECHECK_NTFY_SERVER", ""),
+		SiteTitle:       strEnv("SITECHECK_SITE_TITLE", "SiteCheck Status"),
+		RetentionDays:   intEnv("SITECHECK_RETENTION_DAYS", 90),
+		GraphWindows:    intSliceEnv("SITECHECK_GRAPH_WINDOWS", []int{24, 168, 720}),
+		NtfyServer:      strEnv("SITECHECK_NTFY_SERVER", ""),
+		TelegramToken:   strEnv("SITECHECK_TELEGRAM_TOKEN", ""),
+		TelegramChannel: strEnv("SITECHECK_TELEGRAM_CHANNEL", ""),
 	}
 	return cfg, cfg.validate()
 }
