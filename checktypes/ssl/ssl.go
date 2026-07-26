@@ -378,10 +378,6 @@ func pushSSLResult(l *lua.State, r *SSLResult) {
 			r.NotBefore = l.ToString(3)
 		case "NotAfter":
 			r.NotAfter = l.ToString(3)
-		case "DaysRemaining":
-			r.DaysRemaining = int(l.ToInt(3))
-		case "ResponseTimeMS":
-			r.ResponseTimeMS = l.ToFloat(3)
 		case "Error":
 			r.Error = l.ToString(3)
 		}

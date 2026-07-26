@@ -330,10 +330,6 @@ func pushSystemdResult(l *lua.State, r *SystemdResult) {
 			r.SubState = l.ToString(3)
 		case "LoadState":
 			r.LoadState = l.ToString(3)
-		case "MainPID":
-			r.MainPID = int(l.ToInt(3))
-		case "ResponseTimeMS":
-			r.ResponseTimeMS = l.ToFloat(3)
 		case "Error":
 			r.Error = l.ToString(3)
 		}

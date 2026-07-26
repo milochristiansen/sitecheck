@@ -386,20 +386,12 @@ func pushHTTPResult(l *lua.State, r *HTTPResult) {
 			r.FailReason = l.ToString(3)
 		case "URL":
 			r.URL = l.ToString(3)
-		case "StatusCode":
-			r.StatusCode = int(l.ToInt(3))
-		case "BodySize":
-			r.BodySize = l.ToInt(3)
 		case "Body":
 			r.Body = l.ToString(3)
-		case "ResponseTimeMS":
-			r.ResponseTimeMS = l.ToFloat(3)
 		case "TLSVersion":
 			r.TLSVersion = l.ToString(3)
 		case "RemoteIP":
 			r.RemoteIP = l.ToString(3)
-		case "RedirectCount":
-			r.RedirectCount = int(l.ToInt(3))
 		case "Error":
 			r.Error = l.ToString(3)
 		}

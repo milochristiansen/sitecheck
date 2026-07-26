@@ -266,8 +266,6 @@ func pushTCPResult(l *lua.State, r *TCPResult) {
 			r.Host = l.ToString(3)
 		case "Port":
 			r.Port = int(l.ToInt(3))
-		case "ResponseTimeMS":
-			r.ResponseTimeMS = l.ToFloat(3)
 		case "RemoteIP":
 			r.RemoteIP = l.ToString(3)
 		case "Error":

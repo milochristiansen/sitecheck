@@ -282,8 +282,8 @@ func pushDNSResult(l *lua.State, r *DNSResult) {
 			r.FailReason = l.ToString(3)
 		case "Host":
 			r.Host = l.ToString(3)
-		case "ResponseTimeMS":
-			r.ResponseTimeMS = l.ToFloat(3)
+		case "IPs":
+			r.IPs = readStrSlice(l, 3)
 		case "Error":
 			r.Error = l.ToString(3)
 		}
@@ -309,6 +309,19 @@ func pushStrSlice(l *lua.State, strs []string) {
 		l.Push(s)
 		l.SetTableRaw(-3)
 	}
+}
+
+func readStrSlice(l *lua.State, tableIdx int) []string {
+	idx := l.AbsIndex(tableIdx)
+	var out []string
+	l.ForEachRaw(idx, func() bool {
+		v := l.GetRaw(-1)
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+		return true
+	})
+	return out
 }
 
 func readIntOpt(l *lua.State, tableIdx int, key string, def int) int {

@@ -422,10 +422,14 @@ func pushExecResult(l *lua.State, r *ExecResult) {
 			r.Pass = int(l.ToInt(3))
 		case "FailReason":
 			r.FailReason = l.ToString(3)
-		case "ResponseTimeMS":
-			r.ResponseTimeMS = l.ToFloat(3)
-		case "ExitCode":
-			r.ExitCode = int(l.ToInt(3))
+		case "Command":
+			r.Command = l.ToString(3)
+		case "Stdout":
+			r.Stdout = l.ToString(3)
+		case "Stderr":
+			r.Stderr = l.ToString(3)
+		case "Combined":
+			r.Combined = l.ToString(3)
 		case "Error":
 			r.Error = l.ToString(3)
 		}

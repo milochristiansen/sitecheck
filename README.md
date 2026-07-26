@@ -18,6 +18,29 @@ The core application will run a local outpost that should be used for most check
 as needed. More information about how to configure outposts can be found elsewhere in this readme.
 
 
+## Secrets, Leaking, and You
+
+First off, this tool generates a static website. How you serve this website is on you. I mildly recommend you don't
+expose this on the public internet unauthenticated, but you do you.
+
+If you do choose to host these files as a public website, there are a few things you should know. First, the detail
+pages for each resource will generally contain all the data that the check function returns to the resource script.
+If you were to, for example, call an endpoint on an internal API that return a body with secrets in it, these secrets
+will be, by default, exposed! Second, even if you mask out the bodies of every internal API request, the detail pages
+could still contain IP addresses, URLs, commands, etc.
+
+It really is a lot safer to not let the general public grub around in your data.
+
+If you read all that and still want to go forward with a public status website, there are a few things you can do.
+Most fields in a report object returned from a check function are editable. This means you can reach into the object
+and censor stuff if you need to. Truncate request bodies (or delete them altogether), censor IPs, and make any other
+changes you like. If you are really dedicated, you can create custom templates to just straight up not show anything
+interesting. This is probably the best way to use this tool to make a public status site.
+
+Anyway, to make a long story short, just put this behind some authentication somewhere and you don't have to worry about
+any of this.
+
+
 ## Building
 
 Clone this repo and `go build ./cmd/sitecheck` and `go build ./cmd/scoutpost` . From there you can simply run
@@ -190,29 +213,33 @@ Other return values (and the function options) are documented below.
 
 Fetch a URL and return the response.
 
-| Option                 | Type   | Default        | Notes                         |
-|------------------------|--------|----------------|-------------------------------|
-| `method`               | string | `"GET"`        | HTTP method                   |
-| `headers`              | table  | `{}`           | `{ ["name"] = "value", ... }` |
-| `body`                 | string | `""`           | request body                  |
-| `timeout`              | number | config default | seconds                       |
-| `follow_redirects`     | bool   | `true`         |                               |
-| `max_redirects`        | number | `10`           |                               |
-| `insecure_skip_verify` | bool   | `false`        | skip TLS verification         |
+Options:
+
+| Option                 | Type   | Default        | Notes                                                       |
+|------------------------|--------|----------------|-------------------------------------------------------------|
+| `method`               | string | `"GET"`        | HTTP method                                                 |
+| `headers`              | table  | `{}`           | `{ ["name"] = "value", ... }`                               |
+| `body`                 | string | `""`           | request body                                                |
+| `timeout`              | number | config default | seconds                                                     |
+| `follow_redirects`     | bool   | `true`         | follow redirect responses                                   |
+| `max_redirects`        | number | `10`           | max redirects to follow                                     |
+| `insecure_skip_verify` | bool   | `false`        | skip TLS certificate verification                           |
 
 Returns:
 
-| Field            | Type   | Notes                         |
-|------------------|--------|-------------------------------|
-| `URL`            | string | requested URL                 |
-| `StatusCode`     | int    | HTTP status code              |
-| `Body`           | string | response body                 |
-| `BodySize`       | int    | response body bytes           |
-| `ResponseTimeMS` | float  | milliseconds                  |
-| `TLSVersion`     | string | TLS version if HTTPS          |
-| `RemoteIP`       | string | remote IP address             |
-| `RedirectCount`  | int    | redirects followed            |
-| `Error`          | string | error message                 |
+| Field             | Type   | Write | Notes                           |
+|-------------------|--------|-------|---------------------------------|
+| `Pass`            | int    | R/W   | script output                   |
+| `FailReason`      | string | R/W   | script output                   |
+| `URL`             | string | R/W   | final URL after redirects       |
+| `StatusCode`      | int    | R/O   | HTTP status code                |
+| `Body`            | string | R/W   | response body                   |
+| `BodySize`        | int64  | R/O   | response body bytes             |
+| `ResponseTimeMS`  | float  | R/O   | request duration (ms)           |
+| `TLSVersion`      | string | R/W   | TLS version if HTTPS            |
+| `RemoteIP`        | string | R/W   | resolved remote IP              |
+| `RedirectCount`   | int    | R/O   | redirects followed              |
+| `Error`           | string | R/W   | error message                   |
 
 
 **`icmp_ping(host, opts)`**
@@ -220,87 +247,102 @@ Returns:
 Ping the given host. Raw ICMP needs root or similar, but on Linux/Darwin it may be possible to use a UDP thingy that
 lets you send ICMP packets via some magic BS that seems to work and I haven't really looked into the details of.
 
-| Option       | Type   | Default        | Notes                                                 |
-|--------------|--------|----------------|-------------------------------------------------------|
-| `count`      | number | `3`            | packets to send                                       |
-| `timeout`    | number | config default | seconds                                               |
-| `privileged` | bool   | `false`        | true for real ICMP, false for UDP (Darwin/Linux only) |
+Options:
+
+| Option       | Type   | Default        | Notes                                                       |
+|--------------|--------|----------------|-------------------------------------------------------------|
+| `count`      | number | `3`            | packets to send                                             |
+| `timeout`    | number | config default | seconds                                                     |
+| `privileged` | bool   | `false`        | true for raw ICMP, false for UDP fallback (Linux/Darwin)    |
 
 Returns:
 
-| Field             | Type   | Notes                         |
-|-------------------|--------|-------------------------------|
-| `Host`            | string | target host                   |
-| `PacketsSent`     | int    | packets sent                  |
-| `PacketsReceived` | int    | packets received              |
-| `PacketLossPct`   | float  | loss percentage               |
-| `MinMS`           | float  | min RTT (ms)                  |
-| `MaxMS`           | float  | max RTT (ms)                  |
-| `ResponseTimeMS`  | float  | average RTT (ms)              |
-| `Error`           | string | error message                 |
+| Field             | Type   | Write | Notes                           |
+|-------------------|--------|-------|---------------------------------|
+| `Pass`            | int    | R/W   | script output                   |
+| `FailReason`      | string | R/W   | script output                   |
+| `Host`            | string | R/W   | target hostname or IP           |
+| `PacketsSent`     | int    | R/O   | ICMP echo requests sent         |
+| `PacketsReceived` | int    | R/O   | ICMP echo replies received      |
+| `PacketLossPct`   | float  | R/O   | loss percentage                 |
+| `MinMS`           | float  | R/O   | minimum RTT (ms)                |
+| `MaxMS`           | float  | R/O   | maximum RTT (ms)                |
+| `ResponseTimeMS`  | float  | R/O   | average RTT (ms)                |
+| `Error`           | string | R/W   | error message                   |
 
 
 **`tcp_connect(host, port, opts)`**
 
 Make a TCP connection and then close it.
 
-| Option    | Type   | Default        |
-|-----------|--------|----------------|
-| `timeout` | number | config default |
+Options:
+
+| Option    | Type   | Default        | Notes                                                       |
+|-----------|--------|----------------|-------------------------------------------------------------|
+| `timeout` | number | config default | seconds                                                     |
 
 Returns:
 
-| Field            | Type   | Notes                         |
-|------------------|--------|-------------------------------|
-| `Host`           | string | target host                   |
-| `Port`           | int    | target port                   |
-| `ResponseTimeMS` | float  | milliseconds                  |
-| `RemoteIP`       | string | remote IP address             |
-| `Error`          | string | error message                 |
+| Field             | Type   | Write | Notes                           |
+|-------------------|--------|-------|---------------------------------|
+| `Pass`            | int    | R/W   | script output                   |
+| `FailReason`      | string | R/W   | script output                   |
+| `Host`            | string | R/W   | target hostname                 |
+| `Port`            | int    | R/W   | target port                     |
+| `ResponseTimeMS`  | float  | R/O   | connection time (ms)            |
+| `RemoteIP`        | string | R/W   | resolved remote IP              |
+| `Error`           | string | R/W   | error message                   |
 
 
 **`dns_lookup(host, opts)`**
 
 Lookup a host name via DNS.
 
-| Option     | Type   | Default        | Notes         |
-|------------|--------|----------------|---------------|
-| `timeout`  | number | config default |               |
-| `resolver` | string | system default | DNS server IP |
+Options:
+
+| Option     | Type   | Default        | Notes                                                       |
+|------------|--------|----------------|-------------------------------------------------------------|
+| `timeout`  | number | config default | seconds                                                     |
+| `resolver` | string | system default | DNS server IP                                               |
 
 Returns:
 
-| Field            | Type   | Notes                         |
-|------------------|--------|-------------------------------|
-| `Host`           | string | looked-up host                |
-| `IPs`            | table  | array of IP strings           |
-| `ResponseTimeMS` | float  | milliseconds                  |
-| `Error`          | string | error message                 |
+| Field             | Type   | Write | Notes                           |
+|-------------------|--------|-------|---------------------------------|
+| `Pass`            | int    | R/W   | script output                   |
+| `FailReason`      | string | R/W   | script output                   |
+| `Host`            | string | R/W   | queried hostname                |
+| `IPs`             | table  | R/W   | array of IP strings             |
+| `ResponseTimeMS`  | float  | R/O   | lookup duration (ms)            |
+| `Error`           | string | R/W   | error message                   |
 
 
 **`ssl_certificate(host, port, opts)`**
 
 Get a site's SSL certificate.
 
-| Option                 | Type   | Default        | Notes                 |
-|------------------------|--------|----------------|-----------------------|
-| `timeout`              | number | config default |                       |
-| `insecure_skip_verify` | bool   | `false`        | skip TLS verification |
+Options:
+
+| Option                 | Type   | Default        | Notes                                                       |
+|------------------------|--------|----------------|-------------------------------------------------------------|
+| `timeout`              | number | config default | seconds                                                     |
+| `insecure_skip_verify` | bool   | `false`        | skip TLS certificate verification                           |
 
 Returns:
 
-| Field            | Type   | Notes                         |
-|------------------|--------|-------------------------------|
-| `Host`           | string | target host                   |
-| `Port`           | int    | target port                   |
-| `Issuer`         | string | certificate issuer            |
-| `Subject`        | string | certificate subject           |
-| `NotBefore`      | string | valid-from (RFC 3339)         |
-| `NotAfter`       | string | valid-until (RFC 3339)        |
-| `DaysRemaining`  | int    | days until expiry             |
-| `ResponseTimeMS` | float  | milliseconds                  |
-| `Error`          | string | error message                 |
-
+| Field             | Type   | Write | Notes                           |
+|-------------------|--------|-------|---------------------------------|
+| `Pass`            | int    | R/W   | script output                   |
+| `FailReason`      | string | R/W   | script output                   |
+| `Host`            | string | R/W   | target hostname                 |
+| `Port`            | int    | R/W   | target port                     |
+| `Issuer`          | string | R/W   | certificate issuer DN           |
+| `Subject`         | string | R/W   | certificate subject DN          |
+| `NotBefore`       | string | R/W   | valid-from (RFC 3339)           |
+| `NotAfter`        | string | R/W   | valid-until (RFC 3339)          |
+| `DaysRemaining`   | int    | R/O   | days until expiry               |
+| `ResponseTimeMS`  | float  | R/O   | TLS handshake duration (ms)     |
+| `Error`           | string | R/W   | error message                   |
 
 
 **`systemd_check(service, opts)`**
@@ -308,21 +350,25 @@ Returns:
 Query a systemd service's status via D-Bus. Requires a systemd-based Linux host and D-Bus access
 (read-only unit status is available to unprivileged users on most distributions).
 
-| Option    | Type   | Default        | Notes                         |
-|-----------|--------|----------------|-------------------------------|
-| `timeout` | number | config default | D-Bus call timeout in seconds |
+Options:
+
+| Option    | Type   | Default        | Notes                                                       |
+|-----------|--------|----------------|-------------------------------------------------------------|
+| `timeout` | number | config default | D-Bus call timeout (seconds)                                |
 
 Returns:
 
-| Field            | Type   | Notes                                                        |
-|------------------|--------|--------------------------------------------------------------|
-| `ServiceName`    | string | unit name (e.g. `nginx.service`)                             |
-| `ActiveState`    | string | `active`, `inactive`, `failed`, `activating`, `deactivating` |
-| `SubState`       | string | `running`, `dead`, `exited`, `auto-restart`, etc.            |
-| `LoadState`      | string | `loaded`, `not-found`, `masked`, etc.                        |
-| `MainPID`        | int    | main process PID (0 if none)                                 |
-| `ResponseTimeMS` | float  | milliseconds                                                 |
-| `Error`          | string | error message (D-Bus or unit lookup failure)                 |
+| Field             | Type   | Write | Notes                           |
+|-------------------|--------|-------|---------------------------------|
+| `Pass`            | int    | R/W   | script output                   |
+| `FailReason`      | string | R/W   | script output                   |
+| `ServiceName`     | string | R/W   | systemd unit name               |
+| `ActiveState`     | string | R/W   | active, inactive, failed, ...   |
+| `SubState`        | string | R/W   | running, dead, exited, ...      |
+| `LoadState`       | string | R/W   | loaded, not-found, masked, ...  |
+| `MainPID`         | int    | R/O   | main process PID                |
+| `ResponseTimeMS`  | float  | R/O   | D-Bus query duration (ms)       |
+| `Error`           | string | R/W   | error message                   |
 
 
 **`exec_command(command, args, opts)`**
@@ -331,23 +377,27 @@ Run an arbitrary command and capture its exit code and output. The command runs 
 unless you invoke `sh` or similar. Output is captured in three forms: stdout-only, stderr-only, and a
 combined interleaved stream that preserves the original write ordering.
 
-| Option    | Type   | Default        | Notes                              |
-|-----------|--------|----------------|------------------------------------|
-| `timeout` | number | config default | kill the command after N seconds   |
-| `env`     | table  | *(current)*    | `{ ["KEY"] = "value", ... }`       |
-| `stdin`   | string | `""`           | piped to command stdin             |
+Options:
+
+| Option    | Type   | Default        | Notes                                                       |
+|-----------|--------|----------------|-------------------------------------------------------------|
+| `timeout` | number | config default | kill the command after N seconds                            |
+| `env`     | table  | *(current)*    | `{ ["KEY"] = "value", ... }`                                |
+| `stdin`   | string | `""`           | piped to command stdin                                      |
 
 Returns:
 
-| Field            | Type   | Notes                                          |
-|------------------|--------|------------------------------------------------|
-| `Command`        | string | full command line (for display)                |
-| `ExitCode`       | int    | process exit code (`-1` if no exit occurred)   |
-| `Stdout`         | string | standard output (truncated to 64 KiB in DB)    |
-| `Stderr`         | string | standard error  (truncated to 64 KiB in DB)    |
-| `Combined`       | string | interleaved stdout+stderr (truncated to 64 KiB)|
-| `ResponseTimeMS` | float  | wall-clock milliseconds                        |
-| `Error`          | string | execution error (timeout, not found, etc.)     |
+| Field             | Type   | Write | Notes                           |
+|-------------------|--------|-------|---------------------------------|
+| `Pass`            | int    | R/W   | script output                   |
+| `FailReason`      | string | R/W   | script output                   |
+| `ResponseTimeMS`  | float  | R/O   | wall-clock duration (ms)        |
+| `Command`         | string | R/W   | full command line               |
+| `ExitCode`        | int    | R/O   | process exit code               |
+| `Stdout`          | string | R/W   | standard output                 |
+| `Stderr`          | string | R/W   | standard error                  |
+| `Combined`        | string | R/W   | interleaved stdout+stderr       |
+| `Error`           | string | R/W   | execution error                 |
 
 
 ### Other Custom Lua APIs

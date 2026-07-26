@@ -409,18 +409,6 @@ func pushPingResult(l *lua.State, r *PingResult) {
 			r.FailReason = l.ToString(3)
 		case "Host":
 			r.Host = l.ToString(3)
-		case "PacketsSent":
-			r.PacketsSent = int(l.ToInt(3))
-		case "PacketsReceived":
-			r.PacketsReceived = int(l.ToInt(3))
-		case "PacketLossPct":
-			r.PacketLossPct = l.ToFloat(3)
-		case "MinMS":
-			r.MinMS = l.ToFloat(3)
-		case "MaxMS":
-			r.MaxMS = l.ToFloat(3)
-		case "ResponseTimeMS":
-			r.ResponseTimeMS = l.ToFloat(3)
 		case "Error":
 			r.Error = l.ToString(3)
 		}
