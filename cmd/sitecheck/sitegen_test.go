@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"sitecheck/checktypes/http"
 )
 
 func TestCountStatuses(t *testing.T) {
@@ -273,6 +275,26 @@ func TestBuildCards(t *testing.T) {
 			t.Errorf("FailReason = %q, want empty", cards[0].FailReason)
 		}
 	})
+}
+
+func TestBuildCardsSparklineCappedTo24h(t *testing.T) {
+	// History spanning more than a day: the card sparkline must only include the last 24h.
+	// Sparkline renders one <circle> per point, so 3 rows total → 2 in the window.
+	now := time.Now().UTC()
+	ts := func(h int) string { return now.Add(-time.Duration(h) * time.Hour).Format("2006-01-02 15:04:05") }
+	hist := []http.HTTPCheck{
+		{Timestamp: ts(48), ResponseTimeMS: 5},
+		{Timestamp: ts(6), ResponseTimeMS: 10},
+		{Timestamp: ts(1), ResponseTimeMS: 20},
+	}
+	results := []SiteResult{{Slug: "http", Name: "HTTP Check", CheckType: "http", OutpostSlug: "main", History: hist}}
+	cards := buildCards(results)
+	if cards[0].Sparkline == template.HTML("") {
+		t.Fatal("sparkline empty, want 2 points rendered")
+	}
+	if n := strings.Count(string(cards[0].Sparkline), "<circle"); n != 2 {
+		t.Errorf("sparkline has %d points, want 2 (24h cap should exclude the 48h-old point)", n)
+	}
 }
 
 // renderCardTestTemplates writes a minimal template set (base + index + per-level cards) and

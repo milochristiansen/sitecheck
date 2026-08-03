@@ -269,7 +269,8 @@ func buildCards(results []SiteResult) []ResourceCard {
 			if ok {
 				pts := extractPoints(r.History, p)
 				card.Uptime24h = calcUptimePct(lastNHours(pts, 24))
-				card.Sparkline = Sparkline(pts, 120, 30)
+				// Sparklines cap at 24h: the full history window is too dense to read on a card.
+				card.Sparkline = Sparkline(lastNHours(pts, 24), 120, 30)
 			}
 		}
 		cards = append(cards, card)
