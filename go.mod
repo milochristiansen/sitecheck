@@ -3,6 +3,7 @@ module sitecheck
 go 1.26.5
 
 require (
+	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/joho/godotenv v1.5.1
 	github.com/milochristiansen/lua v1.1.8
 	golang.org/x/net v0.57.0
@@ -10,7 +11,6 @@ require (
 )
 
 require (
-	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

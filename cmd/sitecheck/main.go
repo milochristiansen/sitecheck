@@ -78,7 +78,7 @@ func main() {
 		Skip:       false,
 		NotifyDown: true,
 	}
-	if localOverride, err := loadLocalOverride(); err != nil {
+	if localOverride, err := loadLocalOverride(cfg.OutpostsDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Local outpost override error: %v\n", err)
 	} else if localOverride != nil {
 		if localOverride.Name != "" {
@@ -86,13 +86,16 @@ func main() {
 		}
 		localDef.Skip = localOverride.Skip
 		localDef.NotifyDown = localOverride.NotifyDown
+		localDef.Sites = localOverride.Sites
 	}
 
 	// Combine: local always first, then remotes.
 	allOutposts := append([]OutpostDef{localDef}, remoteOutposts...)
-
 	// Collect results from all outposts via the pool.
 	var siteResults []SiteResult
+	// Unrecognized wire versions are warned about once per distinct value, so a single bad
+	// outpost cannot spam the log.
+	seenVersions := make(map[string]bool)
 
 	for pr := range runOutpostPool(allOutposts, cfg) {
 		if pr.Err != nil {
@@ -136,6 +139,16 @@ func main() {
 					if st.Type != "outpost" && outpost != nil {
 						errMsg = fmt.Sprintf("Outpost %s is down", outpost.Name)
 					}
+					// Resources keep their persisted site membership (shown as unknown); the
+					// outpost's own result gets the levels from its definition file.
+					var sites map[string]string
+					if st.Type == "outpost" {
+						if outpost != nil {
+							sites = outpost.Sites
+						}
+					} else if m, ok := database.ResourceMeta(st.Slug, pr.OutpostSlug); ok {
+						sites = m
+					}
 					siteResults = append(siteResults, SiteResult{
 						Slug:        st.Slug,
 						Name:        st.Slug,
@@ -144,6 +157,7 @@ func main() {
 						Err:         errMsg,
 						OutpostSlug: pr.OutpostSlug,
 						OutpostName: pr.OutpostName,
+						Sites:       sites,
 					})
 				}
 			}
@@ -153,6 +167,18 @@ func main() {
 		// Normal result from a working outpost.
 		wr := pr.WireResult
 		compositeSlug := wr.OutpostSlug + "-" + wr.Slug
+
+		// Wire format version check: an absent field means the old format (version 1, known).
+		// An unrecognized version is still parsed best-effort — 1.1 is backwards compatible by
+		// construction — so we only warn, once per distinct version value.
+		if !protocol.IsKnownWireVersion(wr.Version) {
+			if !seenVersions[wr.Version] {
+				seenVersions[wr.Version] = true
+				fmt.Fprintf(os.Stderr, "Warning: unrecognized wire format version %q from outpost %q — parsing best-effort\n",
+					wr.Version, pr.OutpostSlug)
+			}
+		}
+
 		// Resolve sentinel check type from DB history.
 		if wr.CheckType == protocol.CheckTypeLuaError {
 			wr.Pass = UNKNOWN
@@ -163,6 +189,14 @@ func main() {
 			}
 		}
 
+		// Persist site membership for real resource results (not outposts — their levels come
+		// from the definition file each run). This survives the downed-outpost case, where no
+		// fresh meta() data arrives and the core must synthesize results from the DB.
+		if wr.CheckType != "outpost" {
+			if err := database.UpsertResourceMeta(wr.Slug, wr.OutpostSlug, wr.Sites); err != nil {
+				fmt.Fprintf(os.Stderr, "  %-20s DB ERROR (meta): %v\n", compositeSlug, err)
+			}
+		}
 
 		prevPass, hasPrev, _ := database.LastPass(wr.Slug, wr.OutpostSlug, wr.CheckType)
 
@@ -207,6 +241,7 @@ func main() {
 			Err:         wr.Error,
 			OutpostSlug: wr.OutpostSlug,
 			OutpostName: pr.OutpostName,
+			Sites:       wr.Sites,
 		})
 	}
 
@@ -282,10 +317,10 @@ func insertErrorResult(database *db.DB, wr protocol.WireResult) error {
 	return p.InsertError(database.DB, wr.Slug, wr.OutpostSlug, wr.ElapsedMS, wr.Pass, wr.Error)
 }
 
-// loadLocalOverride reads outposts/local.lua if it exists and returns the overrides for the implicit local outpost. URL
-// and token are ignored.
-func loadLocalOverride() (*OutpostDef, error) {
-	path := filepath.Join("outposts", "local.lua")
+// loadLocalOverride reads local.lua from the configured outposts dir if it exists and returns the overrides for the
+// implicit local outpost. URL and token are ignored.
+func loadLocalOverride(outpostsDir string) (*OutpostDef, error) {
+	path := filepath.Join(outpostsDir, "local.lua")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -316,5 +351,6 @@ func unknownWireResult(slug, checkType, outpostSlug string, pass int, err error)
 		OutpostSlug: outpostSlug,
 		Pass:        pass,
 		Error:       fmt.Sprintf("outpost unreachable: %v", err),
+		Version:     protocol.WireVersion,
 	}
 }

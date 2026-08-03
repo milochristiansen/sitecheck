@@ -1,0 +1,45 @@
+{{/* ── Full level card: the original overview card markup, extracted verbatim ── */}}
+{{define "card-full"}}
+    <div class="card {{statusClass .Pass}}">
+        <div class="card-header">
+            <span class="status-dot {{statusClass .Pass}}"></span>
+            <h2><a href="resources/{{.Slug}}.html">{{.Name}}</a></h2>
+            {{if eq .CheckType "outpost"}}<span class="check-type">outpost</span>{{else if .CheckType}}<span class="check-type">{{.CheckType}}</span>{{end}}
+        </div>
+        <div class="card-body">
+            {{if eq .Pass -1}}
+            {{if eq .CheckType "outpost"}}
+            <div class="no-data">Check error</div>
+            {{if .FailReason}}<div class="stat-row"><span class="stat-value error">{{.FailReason}}</span></div>{{end}}
+            {{else}}
+            <div class="no-data">Owning outpost failed</div>
+            {{end}}
+            {{else}}
+            <div class="stat-row">
+                <span class="stat-label">Status</span>
+                <span class="stat-value {{statusClass .Pass}}">
+                    {{if eq .Pass 2}}PASS{{else if eq .Pass 1}}DEGRADED{{else}}FAIL{{end}}
+                </span>
+            </div>
+            {{if .FailReason}}
+            <div class="stat-row">
+                <span class="stat-label">Reason</span>
+                <span class="stat-value fail-reason">{{.FailReason}}</span>
+            </div>
+            {{end}}
+            <div class="stat-row">
+                <span class="stat-label">Response</span>
+                <span class="stat-value">{{formatDuration .ResponseMS}}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Uptime (24h)</span>
+                <span class="stat-value">{{formatPct .Uptime24h}}</span>
+            </div>
+            {{end}}
+        </div>
+        {{if .Sparkline}}
+        <div class="card-sparkline">{{.Sparkline}}</div>
+        {{end}}
+        {{if and .OutpostName (ne .CheckType "outpost")}}<div class="card-outpost">(<span class="outpost-label">outpost:</span> <a href="resources/{{.OutpostSlug}}.html">{{.OutpostName}}</a>)</div>{{end}}
+    </div>
+{{end}}

@@ -481,9 +481,7 @@ func (p *pingPlugin) TemplateNames() (row, body string) {
 	return "check_ping_row", "check_ping_body"
 }
 
-func (p *pingPlugin) TemplateFiles() []string {
-	return []string{"templates/checks/ping.html"}
-}
+
 
 // --- Registration -----------------------------------------------------------
 

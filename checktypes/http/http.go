@@ -444,10 +444,7 @@ func (p *HTTPPlugin) TemplateNames() (string, string) {
 	return "check_http_row", "check_http_body"
 }
 
-// TemplateFiles returns the template file paths for HTTP checks.
-func (p *HTTPPlugin) TemplateFiles() []string {
-	return []string{"templates/checks/http.html"}
-}
+
 
 func init() {
 	registry.Register(&HTTPPlugin{})

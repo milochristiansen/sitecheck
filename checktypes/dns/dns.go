@@ -319,9 +319,7 @@ func (impl) TemplateNames() (string, string) {
 	return "check_dns_row", "check_dns_body"
 }
 
-func (impl) TemplateFiles() []string {
-	return []string{"templates/checks/dns.html"}
-}
+
 
 func init() {
 	registry.Register(impl{})

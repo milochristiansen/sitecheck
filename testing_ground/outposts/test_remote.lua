@@ -7,5 +7,6 @@ function meta()
         token       = "test-remote-token",
         skip        = false,
         notify_down = true,
+        sites       = { alternate = "basic" },
     }
 end

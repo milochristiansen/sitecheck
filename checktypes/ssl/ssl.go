@@ -423,9 +423,7 @@ func (p *impl) TemplateNames() (row, body string) {
 	return "check_ssl_row", "check_ssl_body"
 }
 
-func (p *impl) TemplateFiles() []string {
-	return []string{"templates/checks/ssl.html"}
-}
+
 
 // ---------------------------------------------------------------------------
 // Registration

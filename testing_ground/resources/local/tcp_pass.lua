@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "TCP Pass",
         description = "Checks TCP connectivity to the test HTTP server port",
+        sites       = { alternate = "basic" },
     }
 end
 

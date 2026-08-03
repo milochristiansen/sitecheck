@@ -61,7 +61,6 @@ type CheckPlugin interface {
 
 	// Templates.
 	TemplateNames() (row, body string)
-	TemplateFiles() []string
 }
 
 var (

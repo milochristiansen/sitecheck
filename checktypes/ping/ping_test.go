@@ -244,13 +244,3 @@ func TestPingPluginTemplateNames(t *testing.T) {
 	}
 }
 
-func TestPingPluginTemplateFiles(t *testing.T) {
-	p, _ := registry.ByName("ping")
-	files := p.TemplateFiles()
-	if len(files) != 1 {
-		t.Fatalf("TemplateFiles = %d files, want 1", len(files))
-	}
-	if files[0] != "templates/checks/ping.html" {
-		t.Errorf("TemplateFiles[0] = %q, want %q", files[0], "templates/checks/ping.html")
-	}
-}

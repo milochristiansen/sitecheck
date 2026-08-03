@@ -18,6 +18,7 @@ type OutpostDef struct {
 	Token      string
 	Skip       bool
 	NotifyDown bool
+	Sites      map[string]string // site name → detail level (level-only; membership is derived)
 }
 
 // scanOutposts reads outpost definitions from .lua files in dir.
@@ -116,8 +117,50 @@ func loadOutpostDef(slug, path string) (OutpostDef, error) {
 			def.NotifyDown = l.ToBool(-1)
 		}
 		l.Pop(1)
+		// sites — site name → detail level. Level-only: it never adds the outpost to a site.
+		l.Push("sites")
+		if l.GetTableRaw(-2) == lua.TypTable {
+			sites, err := readStringMap(l, -1)
+			if err != nil {
+				l.Pop(1)
+				return OutpostDef{}, fmt.Errorf("meta() sites for %s: %w", slug, err)
+			}
+			def.Sites = sites
+		}
+		l.Pop(1)
 	}
 	l.Pop(1)
 
 	return def, nil
+}
+
+// readStringMap reads a string→string table from the Lua value at tableIdx, erroring on any
+// non-string key or value. Mirrors scoutpost's lmods.ReadStringMap for the core's own Lua use.
+func readStringMap(l *lua.State, tableIdx int) (map[string]string, error) {
+	abs := l.AbsIndex(tableIdx)
+	result := make(map[string]string)
+	var mapErr error
+	l.ForEachRaw(abs, func() bool {
+		k := l.GetRaw(-2)
+		ks, ok := k.(string)
+		if !ok {
+			mapErr = fmt.Errorf("sites: table keys must be strings")
+			return false
+		}
+		v := l.GetRaw(-1)
+		vs, ok := v.(string)
+		if !ok {
+			mapErr = fmt.Errorf("sites: value for %q must be a string", ks)
+			return false
+		}
+		result[ks] = vs
+		return true
+	})
+	if mapErr != nil {
+		return nil, mapErr
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return result, nil
 }

@@ -324,9 +324,7 @@ func (impl) TemplateNames() (string, string) {
 	return "check_tcp_row", "check_tcp_body"
 }
 
-func (impl) TemplateFiles() []string {
-	return []string{"templates/checks/tcp.html"}
-}
+
 
 func init() {
 	registry.Register(impl{})

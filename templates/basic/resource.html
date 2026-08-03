@@ -1,0 +1,82 @@
+
+{{define "content"}}
+<nav class="breadcrumb">
+    <a href="../index.html">&larr; Overview</a>
+</nav>
+
+<div class="resource-detail">
+    <div class="detail-header">
+        <div class="status-banner {{statusClass .Pass}}">
+            <span class="status-dot {{statusClass .Pass}}"></span>
+            <span class="status-text">
+                {{if eq .Pass -1}}UNKNOWN{{else if eq .Pass 2}}PASS{{else if eq .Pass 1}}DEGRADED{{else}}FAIL{{end}}
+            </span>
+        </div>
+        <div class="detail-title">
+            {{if .CheckType}}<span class="check-type">{{.CheckType}}</span>{{end}}
+            <h1>{{.Name}}</h1>
+            {{if .Description}}<p class="description">{{.Description}}</p>{{end}}
+        </div>
+    </div>
+    {{if and .OutpostName (ne .CheckType "outpost")}}
+    <div class="detail-outpost">Hosting Outpost: <a href="{{.OutpostSlug}}.html">{{.OutpostName}}</a></div>
+    {{end}}
+
+    {{if .TotalChecks}}
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span class="stat-value">{{formatPct .Uptime24h}}</span>
+            <span class="stat-label">Uptime 24h</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatPct .Uptime7d}}</span>
+            <span class="stat-label">Uptime 7d</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatPct .Uptime30d}}</span>
+            <span class="stat-label">Uptime 30d</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatDuration .AvgResponseMS}}</span>
+            <span class="stat-label">Avg Response</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatDuration .MinResponseMS}}</span>
+            <span class="stat-label">Min Response</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">{{formatDuration .MaxResponseMS}}</span>
+            <span class="stat-label">Max Response</span>
+        </div>
+    </div>
+    {{end}}
+
+    {{if .Charts}}
+    <section class="charts-section">
+        <h2>Response Time</h2>
+        <div class="chart-tabs">
+            {{range .GraphWindows}}
+            {{$w := .}}
+            {{if index $.Charts $w}}
+            <div class="chart-panel" id="chart-{{$w}}h">
+                <h3>Last {{$w}}h</h3>
+                {{index $.Charts $w}}
+            </div>
+            {{end}}
+            {{end}}
+        </div>
+    </section>
+    {{end}}
+
+    {{if and (eq .CheckType "outpost") .Resources}}
+    <section class="outpost-resources">
+        <h2>Resources</h2>
+        <ul class="resource-dot-list">
+            {{range .Resources}}
+            <li><span class="status-dot inline {{statusClass .Pass}}"></span> <a href="{{.Slug}}.html">{{.Name}}</a>{{if .CheckType}} <span class="check-type">{{.CheckType}}</span>{{end}} <span class="stat-value">{{formatDuration .ResponseMS}}</span></li>
+            {{end}}
+        </ul>
+    </section>
+    {{end}}
+</div>
+{{end}}

@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "Exec Fail",
         description = "Runs /bin/false and verifies exit code non-zero",
+        sites       = { alternate = "basic" },
     }
 end
 

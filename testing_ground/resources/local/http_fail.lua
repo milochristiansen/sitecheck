@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "HTTP Fail",
         description = "Checks a non-existent server — always fails",
+        sites       = { alternate = "basic" },
     }
 end
 

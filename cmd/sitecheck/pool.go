@@ -93,6 +93,8 @@ func runOutpostPool(outposts []OutpostDef, cfg *Config) <-chan PoolResult {
 					ElapsedMS:   elapsed.Milliseconds(),
 					Data:        outpostData,
 					OutpostSlug: o.Slug,
+					Sites:       o.Sites,
+					Version:     protocol.WireVersion,
 				},
 			}
 		}(o)

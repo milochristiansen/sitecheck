@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "HTTP Pass",
         description = "Checks the test HTTP server returns 200 OK",
+        sites       = { alternate = "basic" },
     }
 end
 

@@ -1,6 +1,10 @@
 package main
 
 import (
+	"html/template"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -269,4 +273,91 @@ func TestBuildCards(t *testing.T) {
 			t.Errorf("FailReason = %q, want empty", cards[0].FailReason)
 		}
 	})
+}
+
+// renderCardTestTemplates writes a minimal template set (base + index + per-level cards) and
+// returns the dir, mirroring how Generate parses the real set.
+func renderCardTestTemplates(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("base.html", "<html><head><title>{{.Title}}</title></head><body>{{template \"content\" .}}</body></html>")
+	write("index.html", "{{define \"content\"}}<div class=\"resource-grid\">{{range .Entries}}{{renderCard .Level .}}{{end}}</div>{{end}}")
+	write(filepath.Join("full", "card.html"), "{{define \"card-full\"}}FULL:{{.Name}}:{{.Pass}}{{end}}")
+	write(filepath.Join("basic", "card.html"), "{{define \"card-basic\"}}BASIC:{{.Name}}:{{.Pass}}{{end}}")
+	return dir
+}
+
+func TestRenderCard(t *testing.T) {
+	dir := renderCardTestTemplates(t)
+	ir := &templateRenderer{}
+	funcs := tmplFuncs()
+	funcs["renderCard"] = ir.renderCard
+	tmpl := template.Must(template.New("").Funcs(funcs).ParseFiles(
+		filepath.Join(dir, "base.html"),
+		filepath.Join(dir, "index.html"),
+		filepath.Join(dir, "full", "card.html"),
+		filepath.Join(dir, "basic", "card.html"),
+	))
+	ir.tmpl = tmpl
+	card := ResourceCard{Name: "X", Pass: 2}
+
+	full, err := ir.renderCard("full", card)
+	if err != nil {
+		t.Fatalf("renderCard(full): %v", err)
+	}
+	if full != "FULL:X:2" {
+		t.Errorf("renderCard(full) = %q, want %q", full, "FULL:X:2")
+	}
+
+	basic, err := ir.renderCard("basic", card)
+	if err != nil {
+		t.Fatalf("renderCard(basic): %v", err)
+	}
+	if basic != "BASIC:X:2" {
+		t.Errorf("renderCard(basic) = %q, want %q", basic, "BASIC:X:2")
+	}
+}
+
+func TestRenderCardIndexMixedLevels(t *testing.T) {
+	dir := renderCardTestTemplates(t)
+	ir := &templateRenderer{}
+	funcs := tmplFuncs()
+	funcs["renderCard"] = ir.renderCard
+	indexFiles := []string{
+		filepath.Join(dir, "base.html"),
+		filepath.Join(dir, "index.html"),
+	}
+	cardFiles, err := filepath.Glob(filepath.Join(dir, "*", "card.html"))
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	indexFiles = append(indexFiles, cardFiles...)
+	tmpl := template.Must(template.New("").Funcs(funcs).ParseFiles(indexFiles...))
+	ir.tmpl = tmpl
+
+	data := IndexData{
+		Title:   "T",
+		Entries: []ResourceCard{{Name: "A", Pass: 2, Level: "full"}, {Name: "B", Pass: 0, Level: "basic"}},
+	}
+	var buf strings.Builder
+	if err := tmpl.ExecuteTemplate(&buf, "base.html", data); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "FULL:A:2") {
+		t.Errorf("output missing full card: %s", out)
+	}
+	if !strings.Contains(out, "BASIC:B:0") {
+		t.Errorf("output missing basic card: %s", out)
+	}
 }

@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "Remote HTTP Check",
         description = "HTTP check from remote outpost against test server",
+        sites       = { alternate = "basic" },
     }
 end
 

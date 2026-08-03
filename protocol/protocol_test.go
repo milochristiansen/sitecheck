@@ -134,3 +134,63 @@ func TestReadResultsInvalidJSON(t *testing.T) {
 		t.Error("expected closed channel for invalid JSON")
 	}
 }
+
+func TestWireResultSitesRoundTrip(t *testing.T) {
+	wr := NewWireResult(
+		"slug1", "Name1", "Desc1",
+		"http", PASS, "", 1.0, 2, "", nil,
+		true, true, true,
+	)
+	wr.Sites = map[string]string{"internal": "basic", "default": "full"}
+	wr.Version = WireVersion
+
+	var buf bytes.Buffer
+	if err := WriteResult(&buf, wr); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+	got := <-ReadResults(&buf)
+
+	if len(got.Sites) != 2 || got.Sites["internal"] != "basic" || got.Sites["default"] != "full" {
+		t.Errorf("Sites = %v, want map with internal=basic, default=full", got.Sites)
+	}
+	if got.Version != WireVersion {
+		t.Errorf("Version = %q, want %q", got.Version, WireVersion)
+	}
+}
+
+func TestWireResultSitesAbsent(t *testing.T) {
+	// Absent fields must unmarshal to nil map and empty version (old format).
+	var wr WireResult
+	if err := json.Unmarshal([]byte(`{"slug":"s","check_type":"http","pass":2}`), &wr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if wr.Sites != nil {
+		t.Errorf("Sites = %v, want nil for absent field", wr.Sites)
+	}
+	if wr.Version != "" {
+		t.Errorf("Version = %q, want empty for absent field", wr.Version)
+	}
+}
+
+func TestIsKnownWireVersion(t *testing.T) {
+	cases := map[string]bool{
+		"":     true, // absent field ⇒ old format, version 1
+		"1":    true,
+		"1.1":  true,
+		"2.0":  false,
+		"1.2":  false,
+		"9.9":  false,
+		"1.10": false,
+	}
+	for v, want := range cases {
+		if got := IsKnownWireVersion(v); got != want {
+			t.Errorf("IsKnownWireVersion(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+func TestWireVersionFormat(t *testing.T) {
+	if WireVersion != "1.1" {
+		t.Errorf("WireVersion = %q, want %q", WireVersion, "1.1")
+	}
+}

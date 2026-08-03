@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "Exec Pass",
         description = "Runs /bin/true and verifies exit code 0",
+        sites       = { alternate = "basic" },
     }
 end
 

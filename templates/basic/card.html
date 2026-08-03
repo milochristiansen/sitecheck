@@ -1,0 +1,30 @@
+{{/* ── Basic level card: status, response time, uptime, name; no check-type rows ── */}}
+{{define "card-basic"}}
+    <div class="card {{statusClass .Pass}}">
+        <div class="card-header">
+            <span class="status-dot {{statusClass .Pass}}"></span>
+            <h2><a href="resources/{{.Slug}}.html">{{.Name}}</a></h2>
+            {{if .CheckType}}<span class="check-type">{{.CheckType}}</span>{{end}}
+        </div>
+        <div class="card-body">
+            <div class="stat-row">
+                <span class="stat-label">Status</span>
+                <span class="stat-value {{statusClass .Pass}}">
+                    {{if eq .Pass -1}}UNKNOWN{{else if eq .Pass 2}}PASS{{else if eq .Pass 1}}DEGRADED{{else}}FAIL{{end}}
+                </span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Response</span>
+                <span class="stat-value">{{formatDuration .ResponseMS}}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Uptime (24h)</span>
+                <span class="stat-value">{{formatPct .Uptime24h}}</span>
+            </div>
+        </div>
+        {{if .Sparkline}}
+        <div class="card-sparkline">{{.Sparkline}}</div>
+        {{end}}
+        {{if and .OutpostName (ne .CheckType "outpost")}}<div class="card-outpost">(<span class="outpost-label">outpost:</span> <a href="resources/{{.OutpostSlug}}.html">{{.OutpostName}}</a>)</div>{{end}}
+    </div>
+{{end}}

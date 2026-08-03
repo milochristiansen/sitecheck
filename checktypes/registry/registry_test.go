@@ -42,7 +42,7 @@ func (p *testPlugin) DispatchWireResult(_ ResourceMeta, _ protocol.CheckResult, 
 	return protocol.WireResult{}
 }
 func (p *testPlugin) TemplateNames() (row, body string) { return "", "" }
-func (p *testPlugin) TemplateFiles() []string           { return nil }
+
 
 // --- Tests ------------------------------------------------------------------
 

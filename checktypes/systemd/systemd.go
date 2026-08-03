@@ -415,9 +415,7 @@ func (p *impl) TemplateNames() (string, string) {
 	return "check_systemd_row", "check_systemd_body"
 }
 
-func (p *impl) TemplateFiles() []string {
-	return []string{"templates/checks/systemd.html"}
-}
+
 
 // --- Registration ------------------------------------------------------------
 

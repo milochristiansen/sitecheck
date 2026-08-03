@@ -119,3 +119,47 @@ func ReadBoolField(l *lua.State, tableIdx int, key string, def bool) bool {
 	l.Pop(1)
 	return def
 }
+
+// ReadStringMap reads a string→string table field from a Lua table at tableIdx, returning an
+// error if the field is present but is not a table, or contains any non-string key or value.
+// The field's value is left on the stack in all cases; the caller pops it.
+func ReadStringMap(l *lua.State, tableIdx int, key string) (map[string]string, error) {
+	abs := l.AbsIndex(tableIdx)
+	l.Push(key)
+	t := l.GetTableRaw(abs)
+	if t == lua.TypNil {
+		l.Pop(1)
+		return nil, nil
+	}
+	if t != lua.TypTable {
+		l.Pop(1)
+		return nil, fmt.Errorf("%s: %q must be a table", key, key)
+	}
+
+	result := make(map[string]string)
+	subIdx := l.AbsIndex(-1)
+	var mapErr error
+	l.ForEachRaw(subIdx, func() bool {
+		k := l.GetRaw(-2)
+		ks, ok := k.(string)
+		if !ok {
+			mapErr = fmt.Errorf("%s: table keys must be strings", key)
+			return false
+		}
+		v := l.GetRaw(-1)
+		vs, ok := v.(string)
+		if !ok {
+			mapErr = fmt.Errorf("%s: value for %q must be a string", key, ks)
+			return false
+		}
+		result[ks] = vs
+		return true
+	})
+	if mapErr != nil {
+		return nil, mapErr
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return result, nil
+}

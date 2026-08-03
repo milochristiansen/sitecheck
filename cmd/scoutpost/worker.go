@@ -25,6 +25,7 @@ type Resource struct {
 	NotifyPass     bool
 	NotifyDegraded bool
 	NotifyFail     bool
+	Sites          map[string]string // site name → detail level
 }
 
 // toRegistryMeta converts this Resource to a registry.ResourceMeta for plugin dispatch.
@@ -66,7 +67,7 @@ func NewPool(n int, defaultTimeout int) *Pool {
 			defer p.wg.Done()
 			l, err := lmods.NewState(defaultTimeout)
 			if err != nil {
-				p.results <- protocol.WireResult{CheckType: protocol.CheckTypeLuaError, Error: fmt.Sprintf("create lua state: %v", err)}
+				p.results <- protocol.WireResult{CheckType: protocol.CheckTypeLuaError, Error: fmt.Sprintf("create lua state: %v", err), Version: protocol.WireVersion}
 				return
 			}
 			for job := range p.jobs {
@@ -82,6 +83,8 @@ func NewPool(n int, defaultTimeout int) *Pool {
 						NotifyPass:     job.Resource.NotifyPass,
 						NotifyDegraded: job.Resource.NotifyDegraded,
 						NotifyFail:     job.Resource.NotifyFail,
+						Sites:          job.Resource.Sites,
+						Version:        protocol.WireVersion,
 						CheckType:      protocol.CheckTypeLuaError,
 						Error:          err.Error(),
 					}
@@ -96,6 +99,8 @@ func NewPool(n int, defaultTimeout int) *Pool {
 						NotifyPass:     job.Resource.NotifyPass,
 						NotifyDegraded: job.Resource.NotifyDegraded,
 						NotifyFail:     job.Resource.NotifyFail,
+						Sites:          job.Resource.Sites,
+						Version:        protocol.WireVersion,
 						CheckType:      protocol.CheckTypeLuaError,
 						Error:          err.Error(),
 					}
@@ -187,6 +192,14 @@ func PopulateMeta(l *lua.State, res *Resource) error {
 			res.NotifyFail = lmods.ReadBoolField(l, -1, "fail", true)
 		}
 		l.Pop(1)
+
+		// Read sites sub-table if present. Map of site name → detail level.
+		sites, err := lmods.ReadStringMap(l, -1, "sites")
+		if err != nil {
+			l.Pop(1)
+			return fmt.Errorf("meta() for %s: %w", res.Slug, err)
+		}
+		res.Sites = sites
 	}
 	l.Pop(1)
 	return nil
@@ -205,6 +218,8 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			NotifyPass:     res.NotifyPass,
 			NotifyDegraded: res.NotifyDegraded,
 			NotifyFail:     res.NotifyFail,
+			Sites:          res.Sites,
+			Version:        protocol.WireVersion,
 			CheckType:      protocol.CheckTypeLuaError,
 			Error:          fmt.Sprintf("resource %s: check() function not found", res.Slug),
 		}
@@ -224,6 +239,8 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			Desc:           res.Desc,
 			NotifyPass:     res.NotifyPass,
 			NotifyDegraded: res.NotifyDegraded,
+			Sites:          res.Sites,
+			Version:        protocol.WireVersion,
 			NotifyFail:     res.NotifyFail,
 			ElapsedMS:      elapsed.Milliseconds(),
 			CheckType:      protocol.CheckTypeLuaError,
@@ -239,6 +256,8 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			Desc:           res.Desc,
 			NotifyPass:     res.NotifyPass,
 			NotifyDegraded: res.NotifyDegraded,
+			Sites:          res.Sites,
+			Version:        protocol.WireVersion,
 			NotifyFail:     res.NotifyFail,
 			ElapsedMS:      elapsed.Milliseconds(),
 			CheckType:      protocol.CheckTypeLuaError,
@@ -257,6 +276,8 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			Desc:           res.Desc,
 			NotifyPass:     res.NotifyPass,
 			NotifyDegraded: res.NotifyDegraded,
+			Sites:          res.Sites,
+			Version:        protocol.WireVersion,
 			NotifyFail:     res.NotifyFail,
 			ElapsedMS:      elapsed.Milliseconds(),
 			CheckType:      protocol.CheckTypeLuaError,
@@ -272,14 +293,18 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 			Desc:           res.Desc,
 			NotifyPass:     res.NotifyPass,
 			NotifyDegraded: res.NotifyDegraded,
+			Sites:          res.Sites,
+			Version:        protocol.WireVersion,
 			NotifyFail:     res.NotifyFail,
 			ElapsedMS:      elapsed.Milliseconds(),
 			CheckType:      protocol.CheckTypeLuaError,
 			Error:          fmt.Sprintf("unknown check type %q", cr.CheckType()),
 		}
 	}
-
-	return p.DispatchWireResult(res.toRegistryMeta(), cr, elapsed)
+	wr := p.DispatchWireResult(res.toRegistryMeta(), cr, elapsed)
+	wr.Sites = res.Sites
+	wr.Version = protocol.WireVersion
+	return wr
 }
 
 func titleCase(s string) string {

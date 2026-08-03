@@ -61,14 +61,6 @@ func TestExecPluginTemplateNames(t *testing.T) {
 	}
 }
 
-func TestExecPluginTemplateFiles(t *testing.T) {
-	p := &plugin{}
-	files := p.TemplateFiles()
-	if len(files) != 1 || files[0] != "templates/checks/exec.html" {
-		t.Errorf("TemplateFiles = %v, want [%q]", files, "templates/checks/exec.html")
-	}
-}
-
 // --- DDL ---------------------------------------------------------------------
 
 func TestExecPluginCreateTableDDL(t *testing.T) {

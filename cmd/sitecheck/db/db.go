@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,7 +55,59 @@ func (db *DB) Migrate() error {
 			}
 		}
 	}
+
+	// Resource site membership, persisted so extra-site membership survives an outpost outage
+	// (the core has no other source of meta() data for downed outposts).
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS resource_meta (
+		slug         TEXT NOT NULL,
+		outpost_slug TEXT NOT NULL,
+		sites_json   TEXT NOT NULL DEFAULT '{}',
+		updated_at   TEXT NOT NULL,
+		PRIMARY KEY (slug, outpost_slug)
+	)`); err != nil {
+		return fmt.Errorf("migrate resource_meta: %w", err)
+	}
 	return nil
+}
+
+// UpsertResourceMeta stores the site membership map for a resource, overwriting any prior entry.
+// sites is serialized as JSON; nil is stored as an empty object.
+func (db *DB) UpsertResourceMeta(slug, outpostSlug string, sites map[string]string) error {
+	if sites == nil {
+		sites = map[string]string{}
+	}
+	b, err := json.Marshal(sites)
+	if err != nil {
+		return fmt.Errorf("marshal sites for %s/%s: %w", slug, outpostSlug, err)
+	}
+	_, err = db.Exec(`INSERT INTO resource_meta (slug, outpost_slug, sites_json, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(slug, outpost_slug) DO UPDATE SET
+			sites_json = excluded.sites_json,
+			updated_at = excluded.updated_at`,
+		slug, outpostSlug, string(b), time.Now().UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return fmt.Errorf("upsert resource meta %s/%s: %w", slug, outpostSlug, err)
+	}
+	return nil
+}
+
+// ResourceMeta returns the stored site membership map for a resource, or (nil, false) when no
+// row exists or the stored JSON is unreadable.
+func (db *DB) ResourceMeta(slug, outpostSlug string) (map[string]string, bool) {
+	var raw string
+	err := db.QueryRow(
+		`SELECT sites_json FROM resource_meta WHERE slug = ? AND outpost_slug = ?`,
+		slug, outpostSlug,
+	).Scan(&raw)
+	if err != nil {
+		return nil, false
+	}
+	var m map[string]string
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return nil, false
+	}
+	return m, true
 }
 
 // LastPass returns the pass value from the most recent real check for the given slug in the check table for checkType.

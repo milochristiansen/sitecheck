@@ -276,16 +276,6 @@ func TestSystemdPluginTemplateNames(t *testing.T) {
 	}
 }
 
-func TestSystemdPluginTemplateFiles(t *testing.T) {
-	p, _ := registry.ByName("systemd")
-	files := p.TemplateFiles()
-	if len(files) != 1 {
-		t.Fatalf("TemplateFiles returned %d files, want 1", len(files))
-	}
-	if files[0] != "templates/checks/systemd.html" {
-		t.Errorf("TemplateFiles[0] = %q, want %q", files[0], "templates/checks/systemd.html")
-	}
-}
 
 // --- dbusValueString --------------------------------------------------------
 

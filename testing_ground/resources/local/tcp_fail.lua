@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "TCP Fail",
         description = "Checks TCP connectivity to a closed port — always fails",
+        sites       = { alternate = "basic" },
     }
 end
 

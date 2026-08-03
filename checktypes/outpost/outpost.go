@@ -220,9 +220,7 @@ func (p *impl) TemplateNames() (row, body string) {
 	return "check_outpost_row", "check_outpost_body"
 }
 
-func (p *impl) TemplateFiles() []string {
-	return []string{"templates/checks/outpost.html"}
-}
+
 
 func init() {
 	registry.Register(&impl{})

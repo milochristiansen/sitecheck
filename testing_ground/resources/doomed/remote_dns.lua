@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "Remote DNS Check",
         description = "DNS resolution check from remote outpost",
+        sites       = { alternate = "basic" },
     }
 end
 

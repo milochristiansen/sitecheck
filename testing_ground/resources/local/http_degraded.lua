@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "HTTP Degraded",
         description = "Checks the slow endpoint and marks DEGRADED if response time is high",
+        sites       = { alternate = "basic" },
     }
 end
 

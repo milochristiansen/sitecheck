@@ -53,9 +53,10 @@ config you may need.
 
 For more comprehensive playing about, run `./testing_ground/run.sh setup` and then `./testing_ground/run.sh`. Every time
 you run this script it will run a simulated environment that demonstrates most of the possible status combinations for
-outposts and resources. The generated site will be in `testing_ground/work/output/`. Run the script like 5-6 times
-(after the setup step) to get some data history so your graphs aren't boring, and poke around a bit. This is a great way
-to get a feel for what various situations will end up looking like.
+outposts and resources. The generated site will be in `testing_ground/work/output/{default/alternate}`. The default site
+generates with the full templates, and the alternate site generates with the basic templates. Run the script like 5-6
+times (after the setup step) to get some data history so your graphs aren't boring, and poke around a bit. This is a
+great way to get a feel for what various situations will end up looking like.
 
 
 ## Configuration
@@ -148,11 +149,14 @@ a `meta()` function that must return a table that has information about the outp
 
 ```lua
 {
-    name        = "Example",
-    url         = "https://example.com/cgi-bin/scoutpost",
-    token       = "changeme",
-    skip        = false,
-    notify_down = true,
+    name         = "Example",
+    url          = "https://example.com/cgi-bin/scoutpost",
+    token        = "changeme",
+    skip         = false,
+    notify_down  = true,
+    sites        = {
+        internal = "basic",
+    },
 }
 ```
 
@@ -166,6 +170,10 @@ Speaking of if an outpost is down... If an outpost is down, the core application
 to find all the resources that have reports from the downed outpost, if it finds any it will insert a dummy report
 with the special "unknown" status. This report will show up on the generated site, but shouldn't be counted as a state
 transition for notification purposes.
+
+An outpost may also declare a `sites` table mapping site names to detail levels. Unlike resources, this is *level-only*:
+it sets the level at which the outpost renders on a site it appears on, and never adds the outpost to a site. An outpost
+appears in a site only when at least one resource of that site runs on it.
 
 
 ## Writing Check Scripts
@@ -186,13 +194,16 @@ description defaults to an empty string, skip defaults to false, and the notify 
 
 ```lua
 {
-    name        = "Example",
-    description = "An example description",
-    skip        = false,
-    notify      = {
+    name         = "Example",
+    description  = "An example description",
+    skip         = false,
+    notify       = {
         pass     = true
         degraded = true,
         fail     = true,
+    },
+    sites        = {
+        internal = "basic",
     },
 }
 ```
@@ -203,6 +214,19 @@ scripts without making you delete them all, and so that you can disable a script
 The values in the `notify` table are boolean flags. If these are true, when the state of the resource transitions
 from any state to the state the topic is for, there will be a message sent to the ntfy server if it is configured.
 Repeated occurrences of the same state do not trigger notifications.
+
+The `sites` table declares which generated sites this resource appears on, mapping a site name to a detail level.
+Every resource implicitly belongs to the `default` site (which cannot be removed, though you may change its level
+with `sites = { default = "basic" }`); any extra sites listed here are generated as their own directories under the
+output directory. The level names a template set — `full` is the complete template set, `basic` is a minimal view more
+suited for use by, ahem, "non-technical types". See [Generated Site](#generated-site) below.
+
+Currently `full` and `basic` level templates exist, however, these levels are not hardcoded! You can add your own levels
+by simply ensuring properly formed templates exist in the `templates/` directory (or whatever you have configured as
+your templates directory). A template set named `full` must exist as it is the hardcoded default template set. I have
+chosen to not document the templates here, mostly because I'm lazy, they suck, and I don't wanna.
+`cmd/sitecheck/sitegen.go` should contain all/most of the template calling code, and the exiting templates should be
+fairly clear, as much as any go template can be clear anyway.
 
 
 ### Pass Constants
@@ -447,19 +471,26 @@ Outside of that, there are also a few fully custom APIs provided to help do chec
 Parse or encode JSON. This should work pretty much exactly how you would expect. Generally these go to/from table values.
 Look it's a JSON parser, it's not that complicated.
 
-
 ## Generated Site
 
 ```
 output/
-├── index.html           # overview: status summary, resource cards, sparklines
-├── resources/
-│   └── <slug>.html      # detail: stats, SVG line chart, recent checks table
-└── static/
-    └── style.css
+├── default/                # the implicit site — every resource belongs here
+│   ├── index.html          # overview: status summary, resource cards, sparklines
+│   ├── resources/
+│   │   └── <slug>.html     # detail: stats, SVG line chart, recent checks table
+│   └── static/
+│       └── style.css
+└── <sitename>/             # one directory per extra site declared via a resource's meta() sites table
+    ├── index.html
+    ├── resources/
+    │   └── <slug>.html
+    └── static/
+        └── style.css
 ```
 
-Serve `output/` with any static file server. Everything should work if you just open the files directly as well.
+Serve the sub-directories of `output/` with any static file server. Everything should work if you just open the files
+directly as well.
 
 
 ## Database

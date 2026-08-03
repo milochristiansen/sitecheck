@@ -37,23 +37,40 @@ type CheckResult interface {
 
 // --- Wire format ------------------------------------------------------------
 
+// WireVersion is the wire format version stamped by scoutpost on every WireResult it emits.
+// The version is a string, not a number: JSON floats make minor versions ambiguous ("1.10"
+// vs "1.1"), while string comparison keeps the semantics exact.
+const WireVersion = "1.1"
+
 // WireResult is the JSON-lines wire format sent from outpost to core.
 // Data is the check-type-specific payload serialized as a JSON object.
 type WireResult struct {
-	Slug            string          `json:"slug"`
-	Name            string          `json:"name"`
-	Desc            string          `json:"desc"`
-	CheckType       string          `json:"check_type"`
-	Pass            int             `json:"pass"`
-	FailReason      string          `json:"fail_reason,omitempty"`
-	ResponseMS      float64         `json:"response_ms"`
-	ElapsedMS       int64           `json:"elapsed_ms"`
-	Error           string          `json:"error,omitempty"`
-	Data            json.RawMessage `json:"data"`
-	NotifyPass      bool            `json:"notify_pass"`
-	NotifyDegraded  bool            `json:"notify_degraded"`
-	NotifyFail      bool            `json:"notify_fail"`
-	OutpostSlug     string          `json:"outpost_slug,omitempty"`
+	Slug            string            `json:"slug"`
+	Name            string            `json:"name"`
+	Desc            string            `json:"desc"`
+	CheckType       string            `json:"check_type"`
+	Pass            int               `json:"pass"`
+	FailReason      string            `json:"fail_reason,omitempty"`
+	ResponseMS      float64           `json:"response_ms"`
+	ElapsedMS       int64             `json:"elapsed_ms"`
+	Error           string            `json:"error,omitempty"`
+	Data            json.RawMessage   `json:"data"`
+	NotifyPass      bool              `json:"notify_pass"`
+	NotifyDegraded  bool              `json:"notify_degraded"`
+	NotifyFail      bool              `json:"notify_fail"`
+	OutpostSlug     string            `json:"outpost_slug,omitempty"`
+	Sites           map[string]string `json:"sites,omitempty"` // site name → detail level
+	Version         string            `json:"version,omitempty"`
+}
+
+// IsKnownWireVersion reports whether v is a wire format version this build understands.
+// The empty string means the field was absent — the old format, i.e. version 1.
+func IsKnownWireVersion(v string) bool {
+	switch v {
+	case "", "1", "1.1":
+		return true
+	}
+	return false
 }
 
 // NewWireResult builds a WireResult from individual fields, marshaling the

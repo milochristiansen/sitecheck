@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "Remote Exec Check",
         description = "Exec check from remote outpost — always passes",
+        sites       = { alternate = "basic" },
     }
 end
 

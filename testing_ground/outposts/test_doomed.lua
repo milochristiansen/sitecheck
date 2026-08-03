@@ -8,5 +8,6 @@ function meta()
         token       = "doomed-token",
         skip        = false,
         notify_down = true,
+        sites       = { alternate = "basic" },
     }
 end

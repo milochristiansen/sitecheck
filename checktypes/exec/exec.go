@@ -314,9 +314,7 @@ func (p *plugin) TemplateNames() (string, string) {
 	return "check_exec_row", "check_exec_body"
 }
 
-func (p *plugin) TemplateFiles() []string {
-	return []string{"templates/checks/exec.html"}
-}
+
 
 // --- Registration ------------------------------------------------------------
 

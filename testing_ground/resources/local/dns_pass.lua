@@ -2,6 +2,7 @@ function meta()
     return {
         name        = "DNS Pass",
         description = "Checks DNS resolution for localhost",
+        sites       = { alternate = "basic" },
     }
 end
 
