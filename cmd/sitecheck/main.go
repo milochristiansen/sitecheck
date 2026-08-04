@@ -10,9 +10,9 @@ import (
 	"github.com/joho/godotenv"
 
 	"sitecheck/checktypes/registry"
+	"sitecheck/cmd/sitecheck/db"
 	"sitecheck/notify"
 	"sitecheck/protocol"
-	"sitecheck/cmd/sitecheck/db"
 
 	_ "sitecheck/checktypes/dns"
 	_ "sitecheck/checktypes/exec"
@@ -245,14 +245,9 @@ func main() {
 		})
 	}
 
-	// Query history for the largest graph window.
-	maxWindow := 24
-	for _, w := range cfg.GraphWindows {
-		if w > maxWindow {
-			maxWindow = w
-		}
-	}
-	since := time.Now().Add(-time.Duration(maxWindow) * time.Hour)
+	// Query history for the charts: the 30-day chart needs 30 days of data; retention
+	// governs how much is kept, not how much is queried.
+	since := time.Now().Add(-time.Duration(chartWindow30d) * time.Hour)
 
 	for i := range siteResults {
 		r := &siteResults[i]

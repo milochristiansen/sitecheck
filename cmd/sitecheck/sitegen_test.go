@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"sitecheck/checktypes/http"
+	"sitecheck/protocol"
 )
 
 func TestCountStatuses(t *testing.T) {
@@ -37,12 +38,12 @@ func TestCountStatuses(t *testing.T) {
 
 	t.Run("mixed returns correct counts", func(t *testing.T) {
 		cards := []ResourceCard{
-			{Pass: 2}, // up
-			{Pass: 1}, // degraded
-			{Pass: 0}, // down
-			{Pass: 2}, // up
+			{Pass: 2},  // up
+			{Pass: 1},  // degraded
+			{Pass: 0},  // down
+			{Pass: 2},  // up
 			{Pass: -1}, // unknown
-			{Pass: 0}, // down
+			{Pass: 0},  // down
 		}
 		up, degraded, down, unknown := countStatuses(cards)
 		if up != 2 || degraded != 1 || down != 2 || unknown != 1 {
@@ -126,6 +127,7 @@ func TestCalcRespStats(t *testing.T) {
 	const tol = 1e-9
 
 	t.Run("empty returns (0,0,0)", func(t *testing.T) {
+
 		avg, min, max := calcRespStats(nil)
 		if avg != 0 || min != 0 || max != 0 {
 			t.Errorf("nil: got (%f,%f,%f), want (0,0,0)", avg, min, max)
@@ -183,6 +185,56 @@ func TestCalcRespStats(t *testing.T) {
 		}
 		if max < 50.0-tol || max > 50.0+tol {
 			t.Errorf("max: got %f, want 50.0", max)
+		}
+	})
+}
+
+func TestLastN(t *testing.T) {
+	mk := func(n int) []checkPoint {
+		pts := make([]checkPoint, n)
+		for i := range pts {
+			pts[i] = checkPoint{resp: float64(i)}
+		}
+		return pts
+	}
+
+	t.Run("empty returns empty", func(t *testing.T) {
+		if got := lastN(nil, 5); got != nil {
+			t.Errorf("nil: got non-nil")
+		}
+		if got := lastN([]checkPoint{}, 5); len(got) != 0 {
+			t.Errorf("empty: got %d points, want 0", len(got))
+		}
+	})
+
+	t.Run("fewer than n returns all", func(t *testing.T) {
+		if got := lastN(mk(3), 5); len(got) != 3 {
+			t.Errorf("got %d points, want 3", len(got))
+		}
+	})
+
+	t.Run("exactly n returns all", func(t *testing.T) {
+		if got := lastN(mk(5), 5); len(got) != 5 {
+			t.Errorf("got %d points, want 5", len(got))
+		}
+	})
+
+	t.Run("more than n returns last n in order", func(t *testing.T) {
+		got := lastN(mk(10), 4)
+		if len(got) != 4 {
+			t.Fatalf("got %d points, want 4", len(got))
+		}
+		for i, p := range got {
+			if p.resp != float64(6+i) {
+				t.Errorf("point %d resp = %v, want %v", i, p.resp, 6+i)
+			}
+		}
+	})
+
+	t.Run("n=1 returns last point", func(t *testing.T) {
+		got := lastN(mk(3), 1)
+		if len(got) != 1 || got[0].resp != 2 {
+			t.Errorf("got %v, want last point only", got)
 		}
 	})
 }
@@ -277,23 +329,24 @@ func TestBuildCards(t *testing.T) {
 	})
 }
 
-func TestBuildCardsSparklineCappedTo24h(t *testing.T) {
-	// History spanning more than a day: the card sparkline must only include the last 24h.
-	// Sparkline renders one <circle> per point, so 3 rows total → 2 in the window.
+func TestBuildCardsSparklineCappedToN(t *testing.T) {
+	// A card sparkline must show exactly sparklinePoints most-recent checks no matter how
+	// much history exists. Sparkline renders one <circle> per point, so 80 rows in history
+	// → sparklinePoints circles.
 	now := time.Now().UTC()
 	ts := func(h int) string { return now.Add(-time.Duration(h) * time.Hour).Format("2006-01-02 15:04:05") }
-	hist := []http.HTTPCheck{
-		{Timestamp: ts(48), ResponseTimeMS: 5},
-		{Timestamp: ts(6), ResponseTimeMS: 10},
-		{Timestamp: ts(1), ResponseTimeMS: 20},
+	hist := make([]http.HTTPCheck, 80)
+	for i := range hist {
+		hist[i] = http.HTTPCheck{Timestamp: ts(80 - i), ResponseTimeMS: float64(i)}
 	}
 	results := []SiteResult{{Slug: "http", Name: "HTTP Check", CheckType: "http", OutpostSlug: "main", History: hist}}
 	cards := buildCards(results)
-	if cards[0].Sparkline == template.HTML("") {
-		t.Fatal("sparkline empty, want 2 points rendered")
+	spark := string(cards[0].Sparkline)
+	if spark == "" {
+		t.Fatal("sparkline empty, want points rendered")
 	}
-	if n := strings.Count(string(cards[0].Sparkline), "<circle"); n != 2 {
-		t.Errorf("sparkline has %d points, want 2 (24h cap should exclude the 48h-old point)", n)
+	if n := strings.Count(spark, "<circle"); n != sparklinePoints {
+		t.Errorf("sparkline has %d points, want %d (last-N cap)", n, sparklinePoints)
 	}
 }
 
@@ -381,5 +434,105 @@ func TestRenderCardIndexMixedLevels(t *testing.T) {
 	}
 	if !strings.Contains(out, "BASIC:B:0") {
 		t.Errorf("output missing basic card: %s", out)
+	}
+}
+
+func TestChecksSimilar(t *testing.T) {
+	mk := func(pass, code int, resp float64) http.HTTPCheck {
+		return http.HTTPCheck{Pass: pass, StatusCode: code, ResponseTimeMS: resp, Timestamp: "t", URL: "https://a.example.com", DurationMS: 1}
+	}
+
+	t.Run("differs_only_in_timing_is_similar", func(t *testing.T) {
+		a := mk(protocol.PASS, 200, 100)
+		b := mk(protocol.PASS, 200, 250) // different response time
+		if !checksSimilar(a, b) {
+			t.Error("checks differing only in response time must be similar")
+		}
+		b.DurationMS = 42 // different run duration
+		if !checksSimilar(a, b) {
+			t.Error("checks differing only in run duration must be similar")
+		}
+		b.Timestamp = "other" // different run time
+		if !checksSimilar(a, b) {
+			t.Error("checks differing only in timestamp must be similar")
+		}
+	})
+
+	t.Run("different_pass_is_not_similar", func(t *testing.T) {
+		if checksSimilar(mk(protocol.PASS, 200, 100), mk(protocol.FAIL, 200, 100)) {
+			t.Error("pass vs fail must not be similar")
+		}
+	})
+
+	t.Run("different_attribute_is_not_similar", func(t *testing.T) {
+		a := mk(protocol.PASS, 200, 100)
+		if checksSimilar(a, mk(protocol.PASS, 500, 100)) {
+			t.Error("different status codes must not be similar")
+		}
+		b := mk(protocol.PASS, 200, 100)
+		b.URL = "https://b.example.com"
+		if checksSimilar(a, b) {
+			t.Error("different URLs must not be similar")
+		}
+	})
+
+	t.Run("different_types_are_not_similar", func(t *testing.T) {
+		if checksSimilar(mk(protocol.PASS, 200, 100), &http.HTTPCheck{Pass: protocol.PASS, StatusCode: 200}) {
+			t.Error("pointer vs value must not be similar")
+		}
+	})
+}
+
+func TestElideRecentChecks(t *testing.T) {
+	// Newest-first: three similar PASS, one FAIL, two similar PASS.
+	history := []http.HTTPCheck{
+		{Timestamp: "t1", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 10},
+		{Timestamp: "t2", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 11},
+		{Timestamp: "t3", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 12},
+		{Timestamp: "t4", Pass: protocol.FAIL, StatusCode: 500, ResponseTimeMS: 0},
+		{Timestamp: "t5", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 9},
+		{Timestamp: "t6", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 8},
+	}
+	rows := elideRecentChecks(history, "row", "body")
+	// Expect: t1 check, "(2 similar PASS checks elided)", t4 check, t5 check, "(1 similar PASS checks elided)".
+	if len(rows) != 5 {
+		t.Fatalf("got %d rows, want 5", len(rows))
+	}
+	row := func(i int) http.HTTPCheck { return rows[i].Data.(http.HTTPCheck) }
+	if row(0).Timestamp != "t1" {
+		t.Errorf("row 0 = %s, want newest of the PASS run (t1)", row(0).Timestamp)
+	}
+	if rows[1].Elided != "(2 similar PASS checks elided)" {
+		t.Errorf("row 1 = %q, want %q", rows[1].Elided, "(2 similar PASS checks elided)")
+	}
+	if rows[1].Data != nil {
+		t.Error("elided row must have nil Data")
+	}
+	if row(2).Timestamp != "t4" {
+		t.Errorf("row 2 = %s, want t4 (the FAIL)", row(2).Timestamp)
+	}
+	if row(3).Timestamp != "t5" {
+		t.Errorf("row 3 = %s, want t5 (newest of the second PASS run)", row(3).Timestamp)
+	}
+	if rows[4].Elided != "(1 similar PASS checks elided)" {
+		t.Errorf("row 4 = %q, want %q", rows[4].Elided, "(1 similar PASS checks elided)")
+	}
+}
+
+func TestElideRecentChecksNoElision(t *testing.T) {
+	// No two adjacent checks are similar: every row is a real check, no markers.
+	history := []http.HTTPCheck{
+		{Timestamp: "t1", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 10},
+		{Timestamp: "t2", Pass: protocol.FAIL, StatusCode: 500, ResponseTimeMS: 0},
+		{Timestamp: "t3", Pass: protocol.DEGRADED, StatusCode: 200, ResponseTimeMS: 20},
+	}
+	rows := elideRecentChecks(history, "row", "body")
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3", len(rows))
+	}
+	for i, r := range rows {
+		if r.Elided != "" {
+			t.Errorf("row %d has unexpected elision marker %q", i, r.Elided)
+		}
 	}
 }

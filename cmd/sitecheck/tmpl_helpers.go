@@ -9,13 +9,14 @@ import (
 // tmplFuncs returns the template.FuncMap used by all templates.
 func tmplFuncs() template.FuncMap {
 	return template.FuncMap{
-		"formatTime":      formatTime,
-		"formatDuration":  formatDuration,
+		"formatTime":       formatTime,
+		"formatDuration":   formatDuration,
 		"formatDurationMS": formatDurationMS,
-		"formatPct":       formatPct,
-		"statusClass":     statusClass,
-		"passName":        passName,
-		"dict":            dict,
+		"formatPct":        formatPct,
+		"statusClass":      statusClass,
+		"passName":         passName,
+		"dict":             dict,
+		"windowLabel":      windowLabel,
 	}
 }
 
@@ -27,6 +28,15 @@ func formatTime(ts string) string {
 		return ts
 	}
 	return t.Format("2006-01-02 15:04:05 MST")
+}
+
+// windowLabel renders the heading for a graph window: named for the 30-day chart,
+// "Last Nh" for everything else.
+func windowLabel(w int) string {
+	if w == 720 {
+		return "Last 30 days"
+	}
+	return fmt.Sprintf("Last %dh", w)
 }
 
 // formatDuration renders milliseconds as a human-readable string.

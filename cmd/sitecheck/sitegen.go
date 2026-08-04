@@ -12,6 +12,7 @@ import (
 
 	"sitecheck/checktypes/registry"
 )
+
 // IndexData is the template data for index.html.
 type IndexData struct {
 	Title         string
@@ -41,18 +42,21 @@ type ResourceCard struct {
 	Level       string // detail level of this result within the site being rendered
 }
 
-// RenderedCheck holds a pre-identified check with template dispatch info.
+// RenderedCheck holds a pre-identified check with template dispatch info. When Elided
+// is non-empty the entry is an interstitial marker for checks collapsed by elision
+// (Data is nil).
 type RenderedCheck struct {
 	RowTemplateName  string
 	BodyTemplateName string
 	Data             interface{}
+	Elided           string
 }
 
 // OutpostResource is a summary of a resource belonging to an outpost, for the outpost detail page.
 type OutpostResource struct {
 	Name       string
 	Slug       string
-	Pass       int     // 2=pass, 1=degraded, 0=fail, -1=unknown
+	Pass       int // 2=pass, 1=degraded, 0=fail, -1=unknown
 	CheckType  string
 	ResponseMS float64 // response time of the member's latest check (basic level only)
 }
@@ -87,10 +91,11 @@ type ResourcePage struct {
 	DurationMinMS float64
 	DurationMaxMS float64
 
-	// Charts: one SVG per graph window (keyed by window hours)
+	// Charts: one SVG per chart window (keyed by window hours); display is hardcoded
+	// to the 24h and 30-day charts.
 	Charts         map[int]template.HTML
 	DurationCharts map[int]template.HTML
-	GraphWindows   []int
+	ChartWindows   []int
 
 	// Latest check row for display.
 	LatestCheck *RenderedCheck
@@ -119,7 +124,17 @@ type SiteResult struct {
 	History     interface{}       // typed DB check slice, populated by caller
 }
 
-const maxRecentChecks = 15
+const maxRecentChecks = 100
+
+// Chart windows for the detail page, hardcoded: a 24h response-time chart and a 30-day
+// chart. No longer configurable.
+const (
+	chartWindow24h = 24
+	chartWindow30d = 720
+)
+
+// chartWindows lists the windows in display order.
+var chartWindows = []int{chartWindow24h, chartWindow30d}
 
 // Generate renders the static site into cfg.OutputDir — one subdirectory per site (implicit
 // "default" first, extras sorted by name) — from the sorted slice of Results (each with
@@ -243,6 +258,11 @@ func generateSite(cfg *Config, site Site, results []SiteResult, ir *templateRend
 	return nil
 }
 
+// sparklinePoints is the number of most-recent checks drawn on a card sparkline.
+// Points are spread evenly across the 300-unit sparkline canvas; the status dots are
+// ~4 units wide, so more than ~74 points would fuse them into a band on the narrowest
+// card. 70 is the round number just under that bound.
+const sparklinePoints = 70
 
 func buildCards(results []SiteResult) []ResourceCard {
 	cards := make([]ResourceCard, 0, len(results))
@@ -269,8 +289,9 @@ func buildCards(results []SiteResult) []ResourceCard {
 			if ok {
 				pts := extractPoints(r.History, p)
 				card.Uptime24h = calcUptimePct(lastNHours(pts, 24))
-				// Sparklines cap at 24h: the full history window is too dense to read on a card.
-				card.Sparkline = Sparkline(lastNHours(pts, 24), 120, 30)
+				// Sparklines show the last sparklinePoints checks: a fixed count keeps the
+				// density constant regardless of check cadence.
+				card.Sparkline = Sparkline(lastN(pts, sparklinePoints), 300, 30)
 			}
 		}
 		cards = append(cards, card)
@@ -308,7 +329,7 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 		Slug:         slug,
 		Name:         r.Name,
 		Description:  r.Desc,
-		GraphWindows: cfg.GraphWindows,
+		ChartWindows: chartWindows,
 		OutpostSlug:  r.OutpostSlug,
 		OutpostName:  r.OutpostName,
 	}
@@ -334,12 +355,22 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 			page.Uptime30d = calcUptimePct(pts)
 		}
 
-		// Charts per window.
+		// Charts for the fixed windows. The x-axis is anchored to generation time so each
+		// chart always shows the full window. Both charts ship in two sizes (page-width
+		// and standard); CSS picks one per device. The 30d chart shows 8-hour averages.
 		page.Charts = make(map[int]template.HTML)
-		for _, w := range cfg.GraphWindows {
+		chartEnd := time.Now().UTC()
+		for _, w := range chartWindows {
 			windowPts := lastNHours(pts, w)
-			if len(windowPts) >= 2 {
-				page.Charts[w] = LineChart(windowPts, 700, 280)
+			if len(windowPts) < 2 {
+				continue
+			}
+			start := chartEnd.Add(-time.Duration(w) * time.Hour)
+			switch w {
+			case chartWindow24h:
+				page.Charts[w] = LineChartPair(windowPts, start, chartEnd)
+			case chartWindow30d:
+				page.Charts[w] = ThirtyDayChartPair(windowPts, start, chartEnd)
 			}
 		}
 
@@ -348,10 +379,10 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 		if len(durPts) > 0 {
 			page.DurationAvgMS, page.DurationMinMS, page.DurationMaxMS = calcRespStats(durPts)
 			page.DurationCharts = make(map[int]template.HTML)
-			for _, w := range cfg.GraphWindows {
+			for _, w := range chartWindows {
 				windowPts := lastNHours(durPts, w)
 				if len(windowPts) >= 2 {
-					page.DurationCharts[w] = LineChart(windowPts, 700, 280)
+					page.DurationCharts[w] = LineChart(windowPts, 700, 280, chartEnd.Add(-time.Duration(w)*time.Hour), chartEnd)
 				}
 			}
 		}
@@ -368,15 +399,7 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 			}
 			if recent != nil && count > 0 {
 				page.RecentCount = count
-				rv := reflect.ValueOf(recent)
-				page.RecentChecks = make([]RenderedCheck, 0, rv.Len())
-				for i := 0; i < rv.Len(); i++ {
-					page.RecentChecks = append(page.RecentChecks, RenderedCheck{
-						RowTemplateName:  rowName,
-						BodyTemplateName: bodyName,
-						Data:             rv.Index(i).Interface(),
-					})
-				}
+				page.RecentChecks = elideRecentChecks(recent, rowName, bodyName)
 			}
 		}
 	}
@@ -387,6 +410,67 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 // templateRenderer holds a fully parsed template set so that renderCheck can close over it.
 type templateRenderer struct {
 	tmpl *template.Template
+}
+
+// similarIgnoreFields are check-row fields that don't affect whether two checks are the
+// same event: row identity and the run/response timings. Every other field (pass status,
+// fail reason, URL, status code, ...) must match for checks to be elidable.
+var similarIgnoreFields = map[string]bool{
+	"ID":             true,
+	"Timestamp":      true,
+	"DurationMS":     true,
+	"ResponseTimeMS": true,
+	"MinMS":          true, // ping RTT stats — timing
+	"MaxMS":          true, // ping RTT stats — timing
+}
+
+// checksSimilar reports whether two checks of the same type are the same event apart from
+// run timing, i.e. they differ only in response or run timings.
+func checksSimilar(a, b interface{}) bool {
+	av := reflect.ValueOf(a)
+	bv := reflect.ValueOf(b)
+	if av.Type() != bv.Type() {
+		return false
+	}
+	t := av.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if similarIgnoreFields[f.Name] {
+			continue
+		}
+		if !reflect.DeepEqual(av.Field(i).Interface(), bv.Field(i).Interface()) {
+			return false
+		}
+	}
+	return true
+}
+
+// elideRecentChecks turns a newest-first slice of typed checks into renderable rows,
+// collapsing runs of checks that differ only in timing into their newest representative
+// plus an interstitial "(N similar PASS checks elided)" marker.
+func elideRecentChecks(checks interface{}, rowName, bodyName string) []RenderedCheck {
+	rv := reflect.ValueOf(checks)
+	out := make([]RenderedCheck, 0, rv.Len())
+	for i := 0; i < rv.Len(); {
+		j := i + 1
+		for j < rv.Len() && checksSimilar(rv.Index(i).Interface(), rv.Index(j).Interface()) {
+			j++
+		}
+		first := rv.Index(i)
+		out = append(out, RenderedCheck{
+			RowTemplateName:  rowName,
+			BodyTemplateName: bodyName,
+			Data:             first.Interface(),
+		})
+		if elided := j - i - 1; elided > 0 {
+			pass := passName(int(first.FieldByName("Pass").Int()))
+			out = append(out, RenderedCheck{
+				Elided: fmt.Sprintf("(%d similar %s checks elided)", elided, pass),
+			})
+		}
+		i = j
+	}
+	return out
 }
 
 func (tr *templateRenderer) renderCheck(name string, data interface{}) (template.HTML, error) {
@@ -428,7 +512,6 @@ func writeDetailPage(templatesDir, resourcesDir, level string, page ResourcePage
 	}
 	allFiles = append(allFiles, files...)
 
-
 	// Create template with renderCheck function closure.
 	tr := &templateRenderer{}
 	tmpl := template.New("").Funcs(template.FuncMap{
@@ -439,6 +522,7 @@ func writeDetailPage(templatesDir, resourcesDir, level string, page ResourcePage
 		"formatDuration":   formatDuration,
 		"formatDurationMS": formatDurationMS,
 		"dict":             dict,
+		"windowLabel":      windowLabel,
 	})
 	if _, err := tmpl.ParseFiles(allFiles...); err != nil {
 		return fmt.Errorf("parse detail templates: %w", err)
@@ -459,7 +543,6 @@ func writeDetailPage(templatesDir, resourcesDir, level string, page ResourcePage
 	return nil
 }
 
-
 // lastNHours returns points within the last n hours from the end of the slice.
 func lastNHours(pts []checkPoint, hours int) []checkPoint {
 	if len(pts) == 0 {
@@ -472,6 +555,15 @@ func lastNHours(pts []checkPoint, hours int) []checkPoint {
 		}
 	}
 	return pts[len(pts)-1:]
+}
+
+// lastN returns the last n points from the end of the slice, or all of them when
+// there are fewer than n. Points must be in chronological order (oldest first).
+func lastN(pts []checkPoint, n int) []checkPoint {
+	if len(pts) <= n {
+		return pts
+	}
+	return pts[len(pts)-n:]
 }
 
 // calcRespStats returns avg, min, max response times from points.

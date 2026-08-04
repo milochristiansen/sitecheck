@@ -1,10 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"html/template"
 	"math"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"sitecheck/checktypes/http"
 	"sitecheck/checktypes/outpost"
@@ -36,30 +39,6 @@ func TestPointColor(t *testing.T) {
 }
 
 // ------------------------------------------------------------
-// shortTime
-// ------------------------------------------------------------
-
-func TestShortTime(t *testing.T) {
-	tests := []struct {
-		ts   string
-		want string
-	}{
-		{"2024-01-15 10:30:45", "10:30"},
-		{"2024-06-07 23:59:59", "23:59"},
-		{"short", "short"},
-		{"", ""},
-		{"exactly16chars!", "exactly16chars!"},
-		{"1234567890abcde", "1234567890abcde"},
-	}
-	for _, tc := range tests {
-		got := shortTime(tc.ts)
-		if got != tc.want {
-			t.Errorf("shortTime(%q) = %q, want %q", tc.ts, got, tc.want)
-		}
-	}
-}
-
-// ------------------------------------------------------------
 // formatMS
 // ------------------------------------------------------------
 
@@ -69,13 +48,16 @@ func TestFormatMS(t *testing.T) {
 		want string
 	}{
 		{500, "500ms"},
-		{1500, "1.5s"},
+		{1500, "1.50s"},
 		{0, "0ms"},
 		{1, "1ms"},
 		{999, "999ms"},
-		{1000, "1.0s"},
-		{2500, "2.5s"},
-		{10000, "10.0s"},
+		{1000, "1.00s"},
+		{2500, "2.50s"},
+		{10000, "10.00s"},
+		{1999.8, "2.00s"},
+		{2000.4, "2.00s"},
+		{2037.0, "2.04s"},
 	}
 	for _, tc := range tests {
 		got := formatMS(tc.ms)
@@ -264,17 +246,29 @@ func TestSparkline(t *testing.T) {
 // ------------------------------------------------------------
 // LineChart
 // ------------------------------------------------------------
-
 func TestLineChart(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
 	t.Run("less_than_2_points", func(t *testing.T) {
-		if got := LineChart(nil, 300, 180); got != template.HTML("") {
+		if got := LineChart(nil, 300, 180, start, end); got != template.HTML("") {
 			t.Errorf("nil: got %q, want empty", got)
 		}
-		if got := LineChart([]checkPoint{}, 300, 180); got != template.HTML("") {
+		if got := LineChart([]checkPoint{}, 300, 180, start, end); got != template.HTML("") {
 			t.Errorf("empty: got %q, want empty", got)
 		}
-		if got := LineChart([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 10:00:00"}}, 300, 180); got != template.HTML("") {
+		if got := LineChart([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 10:00:00"}}, 300, 180, start, end); got != template.HTML("") {
 			t.Errorf("1 pt: got %q, want empty", got)
+		}
+	})
+
+	t.Run("invalid_window", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 50, ts: "2024-01-01 10:00:00"},
+			{pass: 0, resp: 200, ts: "2024-01-01 10:05:00"},
+		}
+		if got := LineChart(pts, 300, 180, end, start); got != template.HTML("") {
+			t.Errorf("reversed window: got %q, want empty", got)
 		}
 	})
 
@@ -283,7 +277,7 @@ func TestLineChart(t *testing.T) {
 			{pass: 2, resp: 50, ts: "2024-01-01 10:00:00"},
 			{pass: 0, resp: 200, ts: "2024-01-01 10:05:00"},
 		}
-		got := LineChart(pts, 300, 180)
+		got := LineChart(pts, 300, 180, start, end)
 		s := string(got)
 		if s == "" {
 			t.Fatal("expected non-empty SVG")
@@ -314,23 +308,110 @@ func TestLineChart(t *testing.T) {
 		}
 	})
 
-	t.Run("many_points_xaxis_thinned", func(t *testing.T) {
-		pts := make([]checkPoint, 20)
-		for i := range pts {
-			pts[i] = checkPoint{
-				pass: 2,
-				resp: float64(100 + i*10),
-				ts:   "2024-01-01 10:00:00",
+	t.Run("dots_have_tooltips", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 50, ts: "2024-01-01 10:00:00"},
+			{pass: 0, resp: 2500, ts: "2024-01-01 10:05:00"},
+		}
+		got := string(LineChart(pts, 300, 180, start, end))
+		if n := strings.Count(got, "<title>"); n != 2 {
+			t.Errorf("found %d tooltips, want 2 (one per dot)", n)
+		}
+		for _, want := range []string{
+			"<title>2024-01-01 10:00:00\n50ms</title>",
+			"<title>2024-01-01 10:05:00\n2.50s</title>",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("missing tooltip %q", want)
 			}
 		}
-		got := LineChart(pts, 300, 180)
-		s := string(got)
-		if s == "" {
-			t.Fatal("expected non-empty SVG for 20 points")
+	})
+
+	t.Run("points_positioned_by_time", func(t *testing.T) {
+		// 24h window 00:00-24:00 UTC; points at 06:00 (25%) and 18:00 (75%).
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2024-01-01 06:00:00"},
+			{pass: 0, resp: 300, ts: "2024-01-01 18:00:00"},
 		}
-		labelCount := strings.Count(s, "text-anchor=\"middle\"")
-		if labelCount < 2 {
-			t.Errorf("expected multiple X-axis labels, got %d", labelCount)
+		got := string(LineChart(pts, 300, 180, start, end))
+		// plotW = 300-60-16 = 224: x = 60 + 0.25*224 = 116.0, 60 + 0.75*224 = 228.0.
+		// Index-based plotting would have put them at the edges (60.0 and 284.0).
+		for _, want := range []string{`cx="116.0"`, `cx="228.0"`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("missing dot at %s (points must plot at their time position)", want)
+			}
+		}
+	})
+
+	t.Run("off_window_points_clamped", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2023-12-31 12:00:00"}, // before window
+			{pass: 2, resp: 150, ts: "2024-01-01 12:00:00"}, // 50%
+			{pass: 0, resp: 200, ts: "2024-01-02 12:00:00"}, // after window
+		}
+		got := string(LineChart(pts, 300, 180, start, end))
+		for _, want := range []string{`cx="60.0"`, `cx="172.0"`, `cx="284.0"`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("missing dot at %s", want)
+			}
+		}
+	})
+
+	t.Run("unparseable_timestamps_skipped", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "garbage"},
+			{pass: 2, resp: 150, ts: "2024-01-01 06:00:00"},
+			{pass: 2, resp: 200, ts: "2024-01-01 18:00:00"},
+		}
+		got := LineChart(pts, 300, 180, start, end)
+		if got == template.HTML("") {
+			t.Fatal("expected chart from the 2 parseable points")
+		}
+		if n := strings.Count(string(got), "<circle"); n != 2 {
+			t.Errorf("rendered %d dots, want 2 (unparseable rows skipped)", n)
+		}
+	})
+
+	t.Run("fewer_than_2_parseable_is_empty", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "garbage"},
+			{pass: 2, resp: 150, ts: "also garbage"},
+		}
+		if got := LineChart(pts, 300, 180, start, end); got != template.HTML("") {
+			t.Errorf("got %q, want empty with no parseable points", got)
+		}
+	})
+
+	t.Run("fixed_x_ticks", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2024-01-01 06:00:00"},
+			{pass: 2, resp: 200, ts: "2024-01-01 18:00:00"},
+		}
+		got := string(LineChart(pts, 300, 180, start, end))
+		// 24h window -> 6h grid aligned to UTC midnight: 00/06/12/18 on 01-01, 00 on 01-02.
+		for _, want := range []string{">00:00<", ">06:00<", ">12:00<", ">18:00<"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("missing x tick label %s", want)
+			}
+		}
+	})
+
+	t.Run("x_labels_independent_of_point_count", func(t *testing.T) {
+		mk := func(n int) []checkPoint {
+			pts := make([]checkPoint, n)
+			for i := range pts {
+				ts := time.Date(2024, 1, 1, 0, i%60, 0, 0, time.UTC).Format("2006-01-02 15:04:05")
+				pts[i] = checkPoint{pass: 2, resp: float64(100 + i), ts: ts}
+			}
+			return pts
+		}
+		labels3 := strings.Count(string(LineChart(mk(3), 300, 180, start, end)), `text-anchor="middle"`)
+		labels20 := strings.Count(string(LineChart(mk(20), 300, 180, start, end)), `text-anchor="middle"`)
+		if labels3 == 0 {
+			t.Error("expected x tick labels")
+		}
+		if labels3 != labels20 {
+			t.Errorf("label count depends on point count: %d vs %d", labels3, labels20)
 		}
 	})
 
@@ -340,13 +421,287 @@ func TestLineChart(t *testing.T) {
 			{pass: 2, resp: 100, ts: "2024-01-01 10:05:00"},
 			{pass: 2, resp: 100, ts: "2024-01-01 10:10:00"},
 		}
-		got := LineChart(pts, 300, 180)
+		got := LineChart(pts, 300, 180, start, end)
 		s := string(got)
 		if s == "" {
 			t.Fatal("expected non-empty SVG for flat data")
 		}
 		if !strings.Contains(s, "polyline") {
 			t.Error("missing polyline")
+		}
+	})
+}
+
+func TestLineChartPair(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	pts := []checkPoint{
+		{pass: 2, resp: 100, ts: "2024-01-01 06:00:00"},
+		{pass: 0, resp: 300, ts: "2024-01-01 18:00:00"},
+	}
+
+	t.Run("less_than_2_points_is_empty", func(t *testing.T) {
+		if got := LineChartPair(nil, start, end); got != template.HTML("") {
+			t.Errorf("nil: got %q, want empty", got)
+		}
+		if got := LineChartPair([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 06:00:00"}}, start, end); got != template.HTML("") {
+			t.Errorf("1 pt: got %q, want empty", got)
+		}
+	})
+
+	t.Run("two_sizes_with_classes", func(t *testing.T) {
+		got := string(LineChartPair(pts, start, end))
+		if n := strings.Count(got, "<svg"); n != 2 {
+			t.Errorf("found %d <svg, want 2", n)
+		}
+		if n := strings.Count(got, "</svg>"); n != 2 {
+			t.Errorf("found %d </svg>, want 2", n)
+		}
+		wideVB := fmt.Sprintf(`viewBox="0 0 %d %d"`, chartWideW, chartWideH)
+		narrowVB := fmt.Sprintf(`viewBox="0 0 %d %d"`, chartNarrowW, chartNarrowH)
+		if !strings.Contains(got, wideVB) {
+			t.Errorf("missing wide chart viewBox %s", wideVB)
+		}
+		if !strings.Contains(got, narrowVB) {
+			t.Errorf("missing narrow chart viewBox %s", narrowVB)
+		}
+		if !strings.Contains(got, `class="chart-wide"`) {
+			t.Error("missing chart-wide class")
+		}
+		if !strings.Contains(got, `class="chart-narrow"`) {
+			t.Error("missing chart-narrow class")
+		}
+		if n := strings.Count(got, "<polyline"); n != 2 {
+			t.Errorf("found %d polylines, want 2", n)
+		}
+		if n := strings.Count(got, "<circle"); n != 4 {
+			t.Errorf("found %d circles, want 4 (2 per chart)", n)
+		}
+	})
+
+	t.Run("plain_linechart_has_no_class", func(t *testing.T) {
+		got := string(LineChart(pts, 300, 180, start, end))
+		if strings.Contains(got, "class=") {
+			t.Error("plain LineChart must not carry a class attribute")
+		}
+	})
+
+	t.Run("versions_differ_only_in_width", func(t *testing.T) {
+		if chartWideH != chartNarrowH {
+			t.Errorf("wide chart height %d differs from narrow %d — charts must share a height so larger devices get wider, not taller, charts", chartWideH, chartNarrowH)
+		}
+		if chartWideW == chartNarrowW {
+			t.Errorf("wide and narrow widths are equal (%d) — they must differ", chartWideW)
+		}
+	})
+}
+
+func TestThirtyDayChartPair(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(720 * time.Hour)
+	pts := []checkPoint{
+		{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"},
+		{pass: 0, resp: 300, ts: "2024-01-01 00:45:00"},
+	}
+
+	t.Run("less_than_2_points_is_empty", func(t *testing.T) {
+		if got := ThirtyDayChartPair(nil, start, end); got != template.HTML("") {
+			t.Errorf("nil: got %q, want empty", got)
+		}
+		if got := ThirtyDayChartPair([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}}, start, end); got != template.HTML("") {
+			t.Errorf("1 pt: got %q, want empty", got)
+		}
+	})
+
+	t.Run("two_sizes_with_classes", func(t *testing.T) {
+		got := string(ThirtyDayChartPair(pts, start, end))
+		if n := strings.Count(got, "<svg"); n != 2 {
+			t.Errorf("found %d <svg, want 2", n)
+		}
+		if n := strings.Count(got, "</svg>"); n != 2 {
+			t.Errorf("found %d </svg>, want 2", n)
+		}
+		wideVB := fmt.Sprintf(`viewBox="0 0 %d %d"`, chartWideW, chartWideH)
+		narrowVB := fmt.Sprintf(`viewBox="0 0 %d %d"`, chartNarrowW, chartNarrowH)
+		if !strings.Contains(got, wideVB) {
+			t.Errorf("missing wide chart viewBox %s", wideVB)
+		}
+		if !strings.Contains(got, narrowVB) {
+			t.Errorf("missing narrow chart viewBox %s", narrowVB)
+		}
+		if !strings.Contains(got, `class="chart-wide"`) {
+			t.Error("missing chart-wide class")
+		}
+		if !strings.Contains(got, `class="chart-narrow"`) {
+			t.Error("missing chart-narrow class")
+		}
+		if n := strings.Count(got, "<polyline"); n != 2 {
+			t.Errorf("found %d polylines, want 2 (one per chart)", n)
+		}
+	})
+
+	t.Run("plain_chart_has_no_class", func(t *testing.T) {
+		got := string(ThirtyDayChart(pts, 700, 280, start, end))
+		if strings.Contains(got, "class=") {
+			t.Error("plain ThirtyDayChart must not carry a class attribute")
+		}
+	})
+}
+
+func TestThirtyDayChart(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(720 * time.Hour) // 30 days
+
+	t.Run("less_than_2_points_is_empty", func(t *testing.T) {
+		if got := ThirtyDayChart(nil, 700, 280, start, end); got != template.HTML("") {
+			t.Errorf("nil: got %q, want empty", got)
+		}
+		if got := ThirtyDayChart([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}}, 700, 280, start, end); got != template.HTML("") {
+			t.Errorf("1 pt: got %q, want empty", got)
+		}
+	})
+
+	t.Run("renders_90_bucket_dots_with_tooltips", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"},
+			{pass: 0, resp: 300, ts: "2024-01-01 00:45:00"}, // same 8h window: avg 200ms, 1 fail
+			{pass: 1, resp: 150, ts: "2024-01-02 03:30:00"}, // degraded window
+		}
+		got := string(ThirtyDayChart(pts, 700, 280, start, end))
+		if n := strings.Count(got, "<circle"); n != 90 {
+			t.Errorf("rendered %d dots, want 90 (30*3 eight-hour buckets)", n)
+		}
+		for _, c := range []string{"#ef4444", "#eab308", "#64748b"} {
+			if !strings.Contains(got, c) {
+				t.Errorf("missing color %s", c)
+			}
+		}
+		if !strings.Contains(got, "avg 200ms") {
+			t.Error("missing average in tooltip")
+		}
+		if !strings.Contains(got, "1 pass, 0 degraded, 1 fail, 0 unknown") {
+			t.Error("missing counts in tooltip")
+		}
+		if !strings.Contains(got, "No checks in this period") {
+			t.Error("missing empty-window tooltip")
+		}
+	})
+
+	t.Run("worst_event_color_precedence", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // bucket 0 [00:00,08:00): pass+unknown -> purple
+			{pass: -1, resp: 200, ts: "2024-01-01 00:45:00"},
+			{pass: 2, resp: 100, ts: "2024-01-01 08:15:00"}, // bucket 1 [08:00,16:00): pass+degraded -> yellow
+			{pass: 1, resp: 150, ts: "2024-01-01 08:45:00"},
+			{pass: 2, resp: 100, ts: "2024-01-01 16:15:00"}, // bucket 2 [16:00,24:00): pass+degraded+fail -> red
+			{pass: 1, resp: 150, ts: "2024-01-01 16:30:00"},
+			{pass: 0, resp: 300, ts: "2024-01-01 16:45:00"},
+			{pass: 2, resp: 100, ts: "2024-01-02 00:15:00"}, // bucket 3: only pass -> green
+		}
+		got := string(ThirtyDayChart(pts, 700, 280, start, end))
+		// plotW = 624; bucket k center x = 60 + 624*(k+0.5)/90.
+		cases := []struct{ cx, want string }{
+			{`cx="63.5"`, "#8b5cf6"}, // unknown beats pass
+			{`cx="70.4"`, "#eab308"}, // degraded beats pass
+			{`cx="77.3"`, "#ef4444"}, // fail beats degraded
+			{`cx="84.3"`, "#22c55e"}, // all pass -> green
+		}
+		for _, tc := range cases {
+			re := regexp.MustCompile(regexp.QuoteMeta(tc.cx) + `[^>]*fill="([^"]+)"`)
+			m := re.FindStringSubmatch(got)
+			if m == nil {
+				t.Errorf("no dot at %s", tc.cx)
+				continue
+			}
+			if m[1] != tc.want {
+				t.Errorf("dot at %s has fill %s, want %s", tc.cx, m[1], tc.want)
+			}
+		}
+	})
+
+	t.Run("connecting_line_spans_all_buckets", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // bucket 0
+			{pass: 2, resp: 150, ts: "2024-01-01 08:15:00"}, // bucket 1
+			{pass: 2, resp: 200, ts: "2024-01-01 16:15:00"}, // bucket 2
+		}
+		got := string(ThirtyDayChart(pts, 700, 280, start, end))
+		if n := strings.Count(got, "<polyline"); n != 1 {
+			t.Errorf("expected exactly 1 connecting polyline, got %d", n)
+		}
+		m := regexp.MustCompile(`<polyline[^>]*points="([^"]+)"`).FindStringSubmatch(got)
+		if m == nil {
+			t.Fatal("missing polyline")
+		}
+		if n := len(strings.Fields(m[1])); n != 90 {
+			t.Errorf("polyline has %d points, want 90 (one per bucket, empty buckets included)", n)
+		}
+	})
+
+	t.Run("empty_buckets_sit_on_zero_baseline", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // bucket 0 only
+			{pass: 2, resp: 150, ts: "2024-01-03 00:15:00"}, // bucket 6 only
+		}
+		got := string(ThirtyDayChart(pts, 700, 280, start, end))
+		// padTop + plotH = 12 + 228 = 240: empty dots sit on the zero baseline.
+		re := regexp.MustCompile(`cy="240\.0"[^>]*fill="(#64748b)"`)
+		if re.FindStringSubmatch(got) == nil {
+			t.Error("empty-bucket dots are not on the zero baseline (cy=240.0, gray)")
+		}
+	})
+
+	t.Run("connecting_line_dips_to_zero_in_gaps", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // bucket 0
+			{pass: 2, resp: 150, ts: "2024-01-03 00:15:00"}, // bucket 6
+		}
+		got := string(ThirtyDayChart(pts, 700, 280, start, end))
+		// The single polyline must include both data dots and the zero-baseline gaps
+		// between them (bucket 1's x-position at the baseline).
+		points := regexp.MustCompile(`points="([^"]+)"`).FindStringSubmatch(got)
+		if points == nil {
+			t.Fatal("missing polyline")
+		}
+		if !strings.Contains(points[1], "70.4,240.0") {
+			t.Errorf("polyline does not dip to the zero baseline in the gap (missing 70.4,240.0): %s", points[1])
+		}
+	})
+
+	t.Run("fixed_window_bucket_positions", func(t *testing.T) {
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // first bucket (k=0)
+			{pass: 2, resp: 200, ts: "2024-01-30 23:15:00"}, // last bucket (k=89)
+		}
+		got := string(ThirtyDayChart(pts, 700, 280, start, end))
+		// First bucket center: 60 + 624*0.5/90 = 63.5; last (k=89):
+		// 60 + 624*89.5/90 = 680.5.
+		for _, want := range []string{`cx="63.5"`, `cx="680.5"`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("missing dot at %s (bucket dots must sit at fixed window positions)", want)
+			}
+		}
+	})
+
+	t.Run("partial_final_window_folds_into_last_bucket", func(t *testing.T) {
+		// Window end 20 min into the final 8-hour window: that tail must land in the
+		// last bucket, not be dropped.
+		ws := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		we := ws.Add(720*time.Hour + 20*time.Minute)
+		pts := []checkPoint{
+			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"},
+			{pass: 0, resp: 300, ts: "2024-01-31 00:10:00"}, // in the 20-min tail
+		}
+		got := string(ThirtyDayChart(pts, 700, 280, ws, we))
+		if n := strings.Count(got, "<circle"); n != 90 {
+			t.Errorf("rendered %d dots, want 90", n)
+		}
+		// Bucket 89 (Jan 30 16:00) now holds the fail -> red dot at its x position
+		// (center Jan 30 20:00; frac 716/720.3333 -> x = 680.2).
+		re := regexp.MustCompile(`cx="680\.2"[^>]*fill="(#ef4444)"`)
+		if re.FindStringSubmatch(got) == nil {
+			t.Error("tail point not folded into last bucket (no red dot at last bucket position)")
 		}
 	})
 }

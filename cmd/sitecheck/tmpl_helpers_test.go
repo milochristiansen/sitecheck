@@ -260,3 +260,20 @@ func TestPassName(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowLabel(t *testing.T) {
+	tests := []struct {
+		w    int
+		want string
+	}{
+		{720, "Last 30 days"},
+		{24, "Last 24h"},
+		{168, "Last 168h"},
+		{1, "Last 1h"},
+	}
+	for _, tt := range tests {
+		if got := windowLabel(tt.w); got != tt.want {
+			t.Errorf("windowLabel(%d) = %q, want %q", tt.w, got, tt.want)
+		}
+	}
+}
