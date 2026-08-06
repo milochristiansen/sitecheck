@@ -179,7 +179,7 @@ func TestSystemdPluginLatestRecent(t *testing.T) {
 		{ID: 2, Pass: core.PASS, ServiceName: "sshd.service"},
 		{ID: 3, Pass: core.DEGRADED, ServiceName: "sshd.service"},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -201,7 +201,7 @@ func TestSystemdPluginLatestRecent(t *testing.T) {
 
 func TestSystemdPluginLatestRecentEmpty(t *testing.T) {
 	p, _ := core.ByName("systemd")
-	latest, recent, count := p.LatestRecent([]SystemdCheck{}, 15)
+	latest, recent, count := p.LatestRecent([]SystemdCheck{})
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
 	}
@@ -212,7 +212,7 @@ func TestSystemdPluginLatestRecentSingle(t *testing.T) {
 	history := []SystemdCheck{
 		{ID: 42, Pass: core.PASS, ServiceName: "nginx.service"},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -232,15 +232,14 @@ func TestSystemdPluginLatestRecentSingle(t *testing.T) {
 	}
 }
 
-func TestSystemdPluginLatestRecentBounded(t *testing.T) {
+func TestSystemdPluginLatestRecentUncapped(t *testing.T) {
 	p, _ := core.ByName("systemd")
 	history := []SystemdCheck{
 		{ID: 1, Pass: core.FAIL},
 		{ID: 2, Pass: core.PASS},
 		{ID: 3, Pass: core.DEGRADED},
 	}
-	// maxRecent=1 should limit the recent slice to 1 element.
-	latest, recent, count := p.LatestRecent(history, 1)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -252,13 +251,15 @@ func TestSystemdPluginLatestRecentBounded(t *testing.T) {
 			return -1
 		}())
 	}
-	if count != 1 {
-		t.Errorf("count = %d, want 1 (bounded by maxRecent=1)", count)
+	if count != 2 {
+		t.Errorf("count = %d, want 2 (all preceding checks)", count)
 	}
-	if rec, ok := recent.([]SystemdCheck); !ok || len(rec) != 1 {
-		t.Errorf("recent length = want 1, got %d", len(rec))
-	} else if rec[0].ID != 2 {
-		t.Errorf("recent[0].ID = %d, want 2", rec[0].ID)
+	rec, ok := recent.([]SystemdCheck)
+	if !ok || len(rec) != 2 {
+		t.Fatalf("recent length = want 2, got %d", len(rec))
+	}
+	if rec[0].ID != 2 || rec[1].ID != 1 {
+		t.Errorf("recent order = want [2,1], got [%d,%d]", rec[0].ID, rec[1].ID)
 	}
 }
 

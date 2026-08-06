@@ -203,7 +203,7 @@ func TestHTTPPluginLatestRecent(t *testing.T) {
 		{ID: 2, Pass: core.PASS, URL: "https://b.example.com"},
 		{ID: 3, Pass: core.DEGRADED, URL: "https://c.example.com"},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -231,7 +231,7 @@ func TestHTTPPluginLatestRecentSingle(t *testing.T) {
 	history := []HTTPCheck{
 		{ID: 1, Pass: core.PASS, URL: "https://example.com"},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -248,31 +248,35 @@ func TestHTTPPluginLatestRecentSingle(t *testing.T) {
 
 func TestHTTPPluginLatestRecentEmpty(t *testing.T) {
 	p, _ := core.ByName("http")
-	latest, recent, count := p.LatestRecent([]HTTPCheck{}, 15)
+	latest, recent, count := p.LatestRecent([]HTTPCheck{})
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
 	}
 }
 
-func TestHTTPPluginLatestRecentCapped(t *testing.T) {
+func TestHTTPPluginLatestRecentUncapped(t *testing.T) {
 	p, _ := core.ByName("http")
 	history := make([]HTTPCheck, 10)
 	for i := range history {
 		history[i] = HTTPCheck{ID: int64(i + 1), Pass: core.PASS}
 	}
-	// maxRecent = 3, so only 3 items in recent, not 9.
-	latest, recent, count := p.LatestRecent(history, 3)
+	// All nine preceding checks are returned, newest-first.
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
 	if l, ok := latest.(*HTTPCheck); !ok || l.ID != 10 {
 		t.Errorf("latest.ID = want 10, got %v", l.ID)
 	}
-	if count != 3 {
-		t.Errorf("count = %d, want 3 (capped at maxRecent)", count)
+	if count != 9 {
+		t.Errorf("count = %d, want 9 (all preceding checks)", count)
 	}
-	if rec, ok := recent.([]HTTPCheck); !ok || len(rec) != 3 {
-		t.Errorf("recent length = want 3, got %d", len(rec))
+	rec, ok := recent.([]HTTPCheck)
+	if !ok || len(rec) != 9 {
+		t.Fatalf("recent length = want 9, got %d", len(rec))
+	}
+	if rec[0].ID != 9 || rec[8].ID != 1 {
+		t.Errorf("recent order = want [9..1], got first=%d last=%d", rec[0].ID, rec[8].ID)
 	}
 }
 

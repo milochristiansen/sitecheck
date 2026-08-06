@@ -151,7 +151,7 @@ func TestDNSPluginLatestRecent(t *testing.T) {
 		{ID: 2, Pass: core.PASS},
 		{ID: 3, Pass: core.DEGRADED},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -168,7 +168,7 @@ func TestDNSPluginLatestRecent(t *testing.T) {
 
 func TestDNSPluginLatestRecentEmpty(t *testing.T) {
 	p, _ := core.ByName("dns")
-	latest, recent, count := p.LatestRecent([]DNSCheck{}, 15)
+	latest, recent, count := p.LatestRecent([]DNSCheck{})
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
 	}

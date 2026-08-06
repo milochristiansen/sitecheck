@@ -202,17 +202,14 @@ func (p *impl) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 }
 
 // LatestRecent splits the history slice into latest (pointer to last element)
-// and recent (reversed slice of the rest, newest-first, capped at maxRecent).
-func (p *impl) LatestRecent(history interface{}, maxRecent int) (latest, recent interface{}, count int) {
+// and recent (reversed slice of the rest, newest-first).
+func (p *impl) LatestRecent(history interface{}) (latest, recent interface{}, count int) {
 	h, ok := history.([]SSLCheck)
 	if !ok || len(h) == 0 {
 		return nil, nil, 0
 	}
 	latest = &h[len(h)-1]
 	n := len(h) - 1
-	if n > maxRecent {
-		n = maxRecent
-	}
 	rev := make([]SSLCheck, n)
 	for i := range n {
 		rev[i] = h[len(h)-2-i]

@@ -48,7 +48,7 @@ type CheckPlugin interface {
 	// Common field access for sparklines, charts, and stats.
 	ExtractPoints(history interface{}) []CheckPoint
 	ExtractDurationPoints(history interface{}) []CheckPoint
-	LatestRecent(history interface{}, maxRecent int) (latest, recent interface{}, count int)
+	LatestRecent(history interface{}) (latest, recent interface{}, count int)
 
 	// Scoutpost: Lua registration.
 	RegisterLua(l *lua.State, defaultTimeout int)

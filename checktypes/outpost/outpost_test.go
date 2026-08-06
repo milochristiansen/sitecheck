@@ -183,7 +183,7 @@ func TestOutpostPluginLatestRecentMulti(t *testing.T) {
 		{ID: 2, Pass: core.PASS, ResponseTimeMS: 15.0},
 		{ID: 3, Pass: core.DEGRADED, ResponseTimeMS: 10.0},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -200,7 +200,7 @@ func TestOutpostPluginLatestRecentMulti(t *testing.T) {
 
 func TestOutpostPluginLatestRecentEmpty(t *testing.T) {
 	p, _ := core.ByName("outpost")
-	latest, recent, count := p.LatestRecent([]OutpostCheck{}, 15)
+	latest, recent, count := p.LatestRecent([]OutpostCheck{})
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
 	}
@@ -211,7 +211,7 @@ func TestOutpostPluginLatestRecentSingle(t *testing.T) {
 	history := []OutpostCheck{
 		{ID: 42, Pass: core.PASS, ResponseTimeMS: 7.5},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil for single entry")
 	}

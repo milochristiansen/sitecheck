@@ -124,8 +124,6 @@ type SiteResult struct {
 	History     interface{}       // typed DB check slice, populated by caller
 }
 
-const maxRecentChecks = 100
-
 // Chart windows for the detail page, hardcoded: a 24h response-time chart and a 30-day
 // chart. No longer configurable.
 const (
@@ -389,7 +387,7 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 
 		// Latest check and recent checks via plugin.
 		if r.History != nil {
-			latest, recent, count := p.LatestRecent(r.History, maxRecentChecks)
+			latest, recent, count := p.LatestRecent(r.History)
 			rowName, bodyName := p.TemplateNames()
 			if latest != nil {
 				page.LatestCheck = &RenderedCheck{

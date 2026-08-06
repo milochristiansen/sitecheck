@@ -205,8 +205,8 @@ func (p *HTTPPlugin) ExtractDurationPoints(_ interface{}) []core.CheckPoint {
 	return nil
 }
 
-// LatestRecent returns the newest check, and the rest reversed (newest-first, capped at maxRecent).
-func (p *HTTPPlugin) LatestRecent(history interface{}, maxRecent int) (latest, recent interface{}, count int) {
+// LatestRecent returns the newest check, and all preceding checks reversed (newest-first).
+func (p *HTTPPlugin) LatestRecent(history interface{}) (latest, recent interface{}, count int) {
 	h, ok := history.([]HTTPCheck)
 	if !ok || len(h) == 0 {
 		return nil, nil, 0
@@ -216,9 +216,6 @@ func (p *HTTPPlugin) LatestRecent(history interface{}, maxRecent int) (latest, r
 		return latest, nil, 0
 	}
 	n := len(h) - 1
-	if n > maxRecent {
-		n = maxRecent
-	}
 	reversed := make([]HTTPCheck, n)
 	for i := range n {
 		reversed[i] = h[len(h)-2-i]

@@ -175,7 +175,7 @@ func TestPingPluginLatestRecent(t *testing.T) {
 		{ID: 2, Pass: core.PASS, Timestamp: "2024-01-01T00:01:00Z"},
 		{ID: 3, Pass: core.DEGRADED, Timestamp: "2024-01-01T00:02:00Z"},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -201,7 +201,7 @@ func TestPingPluginLatestRecent(t *testing.T) {
 
 func TestPingPluginLatestRecentEmpty(t *testing.T) {
 	p, _ := core.ByName("ping")
-	latest, recent, count := p.LatestRecent([]PingCheck{}, 15)
+	latest, recent, count := p.LatestRecent([]PingCheck{})
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history, got latest=%v, recent=%v, count=%d", latest, recent, count)
 	}
@@ -212,7 +212,7 @@ func TestPingPluginLatestRecentSingle(t *testing.T) {
 	history := []PingCheck{
 		{ID: 1, Pass: core.PASS, Timestamp: "2024-01-01T00:00:00Z"},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}

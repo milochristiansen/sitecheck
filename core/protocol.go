@@ -67,7 +67,7 @@ type WireResult struct {
 // The empty string means the field was absent — the old format, i.e. version 1.
 func IsKnownWireVersion(v string) bool {
 	switch v {
-	case "", "1.1":
+	case "", "1", "1.1":
 		return true
 	}
 	return false

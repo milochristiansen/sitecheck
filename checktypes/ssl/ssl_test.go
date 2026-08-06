@@ -165,7 +165,7 @@ func TestSSLPluginLatestRecent(t *testing.T) {
 		{ID: 2, Pass: core.PASS},
 		{ID: 3, Pass: core.DEGRADED},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -182,7 +182,7 @@ func TestSSLPluginLatestRecent(t *testing.T) {
 
 func TestSSLPluginLatestRecentEmpty(t *testing.T) {
 	p, _ := core.ByName("ssl")
-	latest, recent, count := p.LatestRecent([]SSLCheck{}, 15)
+	latest, recent, count := p.LatestRecent([]SSLCheck{})
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
 	}

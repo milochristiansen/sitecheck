@@ -161,7 +161,7 @@ func (impl) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 	return nil
 }
 
-func (impl) LatestRecent(history interface{}, maxRecent int) (latest, recent interface{}, count int) {
+func (impl) LatestRecent(history interface{}) (latest, recent interface{}, count int) {
 	h, ok := history.([]DNSCheck)
 	if !ok || len(h) == 0 {
 		return nil, nil, 0
@@ -171,9 +171,6 @@ func (impl) LatestRecent(history interface{}, maxRecent int) (latest, recent int
 		return latest, nil, 0
 	}
 	n := len(h) - 1
-	if n > maxRecent {
-		n = maxRecent
-	}
 	reversed := make([]DNSCheck, n)
 	for i := range n {
 		reversed[i] = h[len(h)-2-i]

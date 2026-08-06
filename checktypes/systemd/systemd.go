@@ -199,16 +199,13 @@ func (p *impl) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 	return nil
 }
 
-func (p *impl) LatestRecent(history interface{}, maxRecent int) (latest, recent interface{}, count int) {
+func (p *impl) LatestRecent(history interface{}) (latest, recent interface{}, count int) {
 	h, ok := history.([]SystemdCheck)
 	if !ok || len(h) == 0 {
 		return nil, nil, 0
 	}
 	latest = &h[len(h)-1]
 	n := len(h) - 1
-	if n > maxRecent {
-		n = maxRecent
-	}
 	recentSlice := make([]SystemdCheck, n)
 	for i := range n {
 		recentSlice[i] = h[len(h)-2-i]

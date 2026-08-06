@@ -160,7 +160,7 @@ func TestTCPPluginLatestRecent(t *testing.T) {
 		{ID: 2, Pass: core.PASS},
 		{ID: 3, Pass: core.DEGRADED},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -177,7 +177,7 @@ func TestTCPPluginLatestRecent(t *testing.T) {
 
 func TestTCPPluginLatestRecentEmpty(t *testing.T) {
 	p, _ := core.ByName("tcp")
-	latest, recent, count := p.LatestRecent([]TCPCheck{}, 15)
+	latest, recent, count := p.LatestRecent([]TCPCheck{})
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
 	}
@@ -188,7 +188,7 @@ func TestTCPPluginLatestRecentSingle(t *testing.T) {
 	history := []TCPCheck{
 		{ID: 42, Pass: core.PASS, Host: "example.com", Port: 443},
 	}
-	latest, recent, count := p.LatestRecent(history, 15)
+	latest, recent, count := p.LatestRecent(history)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}

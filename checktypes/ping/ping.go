@@ -196,16 +196,13 @@ func (p *pingPlugin) ExtractDurationPoints(history interface{}) []core.CheckPoin
 	return nil
 }
 
-func (p *pingPlugin) LatestRecent(history interface{}, maxRecent int) (latest, recent interface{}, count int) {
+func (p *pingPlugin) LatestRecent(history interface{}) (latest, recent interface{}, count int) {
 	h, ok := history.([]PingCheck)
 	if !ok || len(h) == 0 {
 		return nil, nil, 0
 	}
 	lat := &h[len(h)-1]
 	n := len(h) - 1
-	if n > maxRecent {
-		n = maxRecent
-	}
 	rev := make([]PingCheck, n)
 	for i := range n {
 		rev[i] = h[len(h)-2-i]

@@ -174,9 +174,8 @@ func (p *impl) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 	return pts
 }
 
-// LatestRecent returns the latest check and up to maxRecent preceding checks
-// in newest-first order.
-func (p *impl) LatestRecent(history interface{}, maxRecent int) (latest, recent interface{}, count int) {
+// LatestRecent returns the latest check and all preceding checks in newest-first order.
+func (p *impl) LatestRecent(history interface{}) (latest, recent interface{}, count int) {
 	h, ok := history.([]OutpostCheck)
 	if !ok || len(h) == 0 {
 		return nil, nil, 0
@@ -189,11 +188,8 @@ func (p *impl) LatestRecent(history interface{}, maxRecent int) (latest, recent 
 		return latest, nil, 0
 	}
 
-	// Recent checks: start from the second-newest, go backward, cap at maxRecent.
+	// Recent checks: start from the second-newest, go backward.
 	n := len(h) - 1
-	if n > maxRecent {
-		n = maxRecent
-	}
 	rc := make([]OutpostCheck, n)
 	for i := range n {
 		rc[i] = h[len(h)-2-i]

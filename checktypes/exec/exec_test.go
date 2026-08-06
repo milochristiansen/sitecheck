@@ -199,7 +199,7 @@ func TestExecPluginExtractDurationPoints(t *testing.T) {
 
 func TestExecPluginLatestRecentEmpty(t *testing.T) {
 	p := &plugin{}
-	latest, recent, count := p.LatestRecent([]ExecCheck{}, 5)
+	latest, recent, count := p.LatestRecent([]ExecCheck{})
 	if latest != nil {
 		t.Errorf("latest = %v, want nil", latest)
 	}
@@ -213,7 +213,7 @@ func TestExecPluginLatestRecentEmpty(t *testing.T) {
 
 func TestExecPluginLatestRecentInvalidType(t *testing.T) {
 	p := &plugin{}
-	latest, recent, count := p.LatestRecent("not a slice", 5)
+	latest, recent, count := p.LatestRecent("not a slice")
 	if latest != nil {
 		t.Errorf("latest = %v, want nil", latest)
 	}
@@ -230,7 +230,7 @@ func TestExecPluginLatestRecentSingle(t *testing.T) {
 	h := []ExecCheck{
 		{Pass: core.PASS, ResponseTimeMS: 10.0, Timestamp: "2025-01-01 00:00:00.000"},
 	}
-	latest, recent, count := p.LatestRecent(h, 5)
+	latest, recent, count := p.LatestRecent(h)
 	if latest == nil {
 		t.Fatal("latest is nil, want non-nil")
 	}
@@ -253,7 +253,7 @@ func TestExecPluginLatestRecentMulti(t *testing.T) {
 		{Pass: core.DEGRADED, ResponseTimeMS: 2.0, Timestamp: "2025-01-01 00:01:00.000"},
 		{Pass: core.PASS, ResponseTimeMS: 3.0, Timestamp: "2025-01-01 00:02:00.000"},
 	}
-	latest, recent, count := p.LatestRecent(h, 2)
+	latest, recent, count := p.LatestRecent(h)
 	if latest == nil {
 		t.Fatal("latest is nil, want non-nil")
 	}
@@ -280,7 +280,7 @@ func TestExecPluginLatestRecentMulti(t *testing.T) {
 	}
 }
 
-func TestExecPluginLatestRecentMaxRecentClamp(t *testing.T) {
+func TestExecPluginLatestRecentAllPreceding(t *testing.T) {
 	p := &plugin{}
 	h := []ExecCheck{
 		{Pass: 0, Timestamp: "t0"},
@@ -288,8 +288,7 @@ func TestExecPluginLatestRecentMaxRecentClamp(t *testing.T) {
 		{Pass: 0, Timestamp: "t2"},
 		{Pass: 1, Timestamp: "t3"},
 	}
-	// maxRecent=1 should return at most 1 recent entry
-	latest, recent, count := p.LatestRecent(h, 1)
+	latest, recent, count := p.LatestRecent(h)
 	if latest == nil {
 		t.Fatal("latest is nil")
 	}
@@ -297,15 +296,17 @@ func TestExecPluginLatestRecentMaxRecentClamp(t *testing.T) {
 	if l.Timestamp != "t3" {
 		t.Errorf("latest timestamp = %q, want %q", l.Timestamp, "t3")
 	}
-	if count != 1 {
-		t.Errorf("count = %d, want 1", count)
+	if count != 3 {
+		t.Errorf("count = %d, want 3 (all preceding checks)", count)
 	}
 	rec := recent.([]ExecCheck)
-	if len(rec) != 1 {
-		t.Fatalf("len(recent) = %d, want 1", len(rec))
+	if len(rec) != 3 {
+		t.Fatalf("len(recent) = %d, want 3", len(rec))
 	}
-	if rec[0].Timestamp != "t2" {
-		t.Errorf("rec[0].Timestamp = %q, want %q", rec[0].Timestamp, "t2")
+	for i, want := range []string{"t2", "t1", "t0"} {
+		if rec[i].Timestamp != want {
+			t.Errorf("rec[%d].Timestamp = %q, want %q", i, rec[i].Timestamp, want)
+		}
 	}
 }
 

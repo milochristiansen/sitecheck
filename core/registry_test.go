@@ -33,7 +33,7 @@ func (p *testPlugin) QuerySince(_ *sql.DB, _, _ string, _ time.Time) (interface{
 }
 func (p *testPlugin) ExtractPoints(_ interface{}) []CheckPoint         { return nil }
 func (p *testPlugin) ExtractDurationPoints(_ interface{}) []CheckPoint { return nil }
-func (p *testPlugin) LatestRecent(_ interface{}, _ int) (latest, recent interface{}, count int) {
+func (p *testPlugin) LatestRecent(_ interface{}) (latest, recent interface{}, count int) {
 	return nil, nil, 0
 }
 func (p *testPlugin) RegisterLua(_ *lua.State, _ int) { /* requires real Lua state — skip */ }
