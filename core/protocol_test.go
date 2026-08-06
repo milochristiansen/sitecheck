@@ -1,4 +1,4 @@
-package protocol
+package core
 
 import (
 	"bytes"
@@ -93,6 +93,9 @@ func TestPassConstants(t *testing.T) {
 	}
 	if PASS != 2 {
 		t.Errorf("PASS = %d, want 2", PASS)
+	}
+	if UNKNOWN != -1 {
+		t.Errorf("UNKNOWN = %d, want -1", UNKNOWN)
 	}
 }
 

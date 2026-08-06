@@ -1,4 +1,4 @@
-// Package exec implements registry.CheckPlugin for arbitrary command-execution checks.
+// Package exec implements core.CheckPlugin for arbitrary command-execution checks.
 package exec
 
 import (
@@ -15,8 +15,7 @@ import (
 
 	"github.com/milochristiansen/lua"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // maxOutputBytes is the per-field truncation limit for stdout, stderr, and
@@ -26,7 +25,7 @@ const maxOutputBytes = 64 << 10 // 64 KiB
 // --- Result struct ----------------------------------------------------------
 
 // ExecResult is the check-type-specific result for a command execution.
-// It implements protocol.CheckResult.
+// It implements core.CheckResult.
 type ExecResult struct {
 	Pass           int     `json:"pass"`
 	FailReason     string  `json:"fail_reason"`
@@ -40,9 +39,9 @@ type ExecResult struct {
 }
 
 func (r *ExecResult) CheckType() string        { return "exec" }
-func (r *ExecResult) CheckPass() int            { return r.Pass }
-func (r *ExecResult) CheckFailReason() string   { return r.FailReason }
-func (r *ExecResult) CheckResponseMS() float64  { return r.ResponseTimeMS }
+func (r *ExecResult) CheckPass() int           { return r.Pass }
+func (r *ExecResult) CheckFailReason() string  { return r.FailReason }
+func (r *ExecResult) CheckResponseMS() float64 { return r.ResponseTimeMS }
 
 // --- DB row struct ----------------------------------------------------------
 
@@ -182,19 +181,19 @@ func (p *plugin) QuerySince(db *sql.DB, slug, outpostSlug string, since time.Tim
 
 // --- Common field access ----------------------------------------------------
 
-func (p *plugin) ExtractPoints(history interface{}) []registry.CheckPoint {
+func (p *plugin) ExtractPoints(history interface{}) []core.CheckPoint {
 	h, ok := history.([]ExecCheck)
 	if !ok {
 		return nil
 	}
-	pts := make([]registry.CheckPoint, len(h))
+	pts := make([]core.CheckPoint, len(h))
 	for i, c := range h {
-		pts[i] = registry.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
+		pts[i] = core.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
 	}
 	return pts
 }
 
-func (p *plugin) ExtractDurationPoints(_ interface{}) []registry.CheckPoint {
+func (p *plugin) ExtractDurationPoints(_ interface{}) []core.CheckPoint {
 	return nil
 }
 
@@ -227,7 +226,7 @@ func (p *plugin) RegisterLua(l *lua.State, defaultTimeout int) {
 		// Collect positional args from the second argument (1-indexed Lua table).
 		var args []string
 		if !l.IsNil(2) && l.TypeOf(2) == lua.TypTable {
-			args = readStrSlice(l, 2)
+			args = core.ReadStrSlice(l, 2)
 		}
 
 		// Options table (third argument).
@@ -235,13 +234,13 @@ func (p *plugin) RegisterLua(l *lua.State, defaultTimeout int) {
 		var env map[string]string
 		var stdin string
 		if !l.IsNil(3) && l.TypeOf(3) == lua.TypTable {
-			timeout = readIntOpt(l, 3, "timeout", defaultTimeout)
-			env = readStringMapOpt(l, 3, "env")
-			stdin = readStringOpt(l, 3, "stdin", "")
+			timeout = core.ReadIntOpt(l, 3, "timeout", defaultTimeout)
+			env = core.ReadStringMapOpt(l, 3, "env")
+			stdin = core.ReadStringOpt(l, 3, "stdin", "")
 		}
 
 		r := &ExecResult{
-			Pass:    protocol.FAIL,
+			Pass:    core.FAIL,
 			Command: formatCommand(name, args),
 		}
 
@@ -252,7 +251,7 @@ func (p *plugin) RegisterLua(l *lua.State, defaultTimeout int) {
 
 		// Set environment if provided.
 		if len(env) > 0 {
-			cmd.Env = osEnviron()
+			cmd.Env = os.Environ()
 			for k, v := range env {
 				cmd.Env = append(cmd.Env, k+"="+v)
 			}
@@ -271,7 +270,7 @@ func (p *plugin) RegisterLua(l *lua.State, defaultTimeout int) {
 		start := time.Now()
 		runErr := cmd.Run()
 		elapsed := time.Since(start)
-		r.ResponseTimeMS = float64(elapsed.Microseconds()) / 1000.0
+		r.ResponseTimeMS = elapsed.Seconds() * 1000
 
 		r.Stdout = stdoutBuf.String()
 		r.Stderr = stderrBuf.String()
@@ -296,9 +295,9 @@ func (p *plugin) RegisterLua(l *lua.State, defaultTimeout int) {
 
 // --- Wire dispatch -----------------------------------------------------------
 
-func (p *plugin) DispatchWireResult(res registry.ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult {
+func (p *plugin) DispatchWireResult(res core.ResourceMeta, cr core.CheckResult, elapsed time.Duration) core.WireResult {
 	r := cr.(*ExecResult)
-	return protocol.NewWireResult(
+	return core.NewWireResult(
 		res.Slug, res.Name, res.Desc,
 		"exec", r.Pass, r.FailReason,
 		r.ResponseTimeMS, elapsed.Milliseconds(),
@@ -314,12 +313,10 @@ func (p *plugin) TemplateNames() (string, string) {
 	return "check_exec_row", "check_exec_body"
 }
 
-
-
 // --- Registration ------------------------------------------------------------
 
 func init() {
-	registry.Register(&plugin{})
+	core.Register(&plugin{})
 }
 
 // --- Helpers -----------------------------------------------------------------
@@ -375,146 +372,16 @@ func needsQuote(s string) bool {
 	return false
 }
 
-func osEnviron() []string { return os.Environ() }
-
-// --- Lua helpers (mirrors of lmods unexported helpers) -----------------------
-
 func pushExecResult(l *lua.State, r *ExecResult) {
-	l.Push(r)
-	l.NewTable(0, 2)
-
-	l.Push("__index")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*ExecResult)
-		switch l.ToString(2) {
-		case "Pass":
-			l.Push(int64(r.Pass))
-		case "FailReason":
-			pushStr(l, r.FailReason)
-		case "ResponseTimeMS":
-			l.Push(r.ResponseTimeMS)
-		case "Command":
-			l.Push(r.Command)
-		case "ExitCode":
-			l.Push(int64(r.ExitCode))
-		case "Stdout":
-			l.Push(r.Stdout)
-		case "Stderr":
-			l.Push(r.Stderr)
-		case "Combined":
-			l.Push(r.Combined)
-		case "Error":
-			pushStr(l, r.Error)
-		default:
-			l.Push(nil)
-		}
-		return 1
+	core.PushResultUserData(l, r, map[string]core.LuaField{
+		"Pass":           {Get: func(l *lua.State) { l.Push(int64(r.Pass)) }, Set: func(l *lua.State) { r.Pass = int(l.ToInt(3)) }},
+		"FailReason":     {Get: func(l *lua.State) { l.Push(r.FailReason) }, Set: func(l *lua.State) { r.FailReason = l.ToString(3) }},
+		"ResponseTimeMS": {Get: func(l *lua.State) { l.Push(r.ResponseTimeMS) }},
+		"Command":        {Get: func(l *lua.State) { l.Push(r.Command) }, Set: func(l *lua.State) { r.Command = l.ToString(3) }},
+		"ExitCode":       {Get: func(l *lua.State) { l.Push(int64(r.ExitCode)) }},
+		"Stdout":         {Get: func(l *lua.State) { l.Push(r.Stdout) }, Set: func(l *lua.State) { r.Stdout = l.ToString(3) }},
+		"Stderr":         {Get: func(l *lua.State) { l.Push(r.Stderr) }, Set: func(l *lua.State) { r.Stderr = l.ToString(3) }},
+		"Combined":       {Get: func(l *lua.State) { l.Push(r.Combined) }, Set: func(l *lua.State) { r.Combined = l.ToString(3) }},
+		"Error":          {Get: func(l *lua.State) { l.Push(r.Error) }, Set: func(l *lua.State) { r.Error = l.ToString(3) }},
 	})
-	l.SetTableRaw(-3)
-
-	l.Push("__newindex")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*ExecResult)
-		switch l.ToString(2) {
-		case "Pass":
-			r.Pass = int(l.ToInt(3))
-		case "FailReason":
-			r.FailReason = l.ToString(3)
-		case "Command":
-			r.Command = l.ToString(3)
-		case "Stdout":
-			r.Stdout = l.ToString(3)
-		case "Stderr":
-			r.Stderr = l.ToString(3)
-		case "Combined":
-			r.Combined = l.ToString(3)
-		case "Error":
-			r.Error = l.ToString(3)
-		}
-		return 0
-	})
-	l.SetTableRaw(-3)
-
-	l.SetMetaTable(-2)
-}
-
-func pushStr(l *lua.State, s string) {
-	if s == "" {
-		l.Push(nil)
-	} else {
-		l.Push(s)
-	}
-}
-
-func readStrSlice(l *lua.State, tableIdx int) []string {
-	idx := l.AbsIndex(tableIdx)
-	var out []string
-	l.ForEachRaw(idx, func() bool {
-		v := l.GetRaw(-1)
-		if s, ok := v.(string); ok {
-			out = append(out, s)
-		}
-		return true
-	})
-	return out
-}
-
-func readStringOpt(l *lua.State, tableIdx int, key string, def string) string {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil {
-		return def
-	}
-	v := l.GetRaw(-1)
-	l.Pop(1)
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return def
-}
-
-func readIntOpt(l *lua.State, tableIdx int, key string, def int) int {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil {
-		return def
-	}
-	v := l.GetRaw(-1)
-	l.Pop(1)
-	switch n := v.(type) {
-	case int64:
-		return int(n)
-	case float64:
-		return int(n)
-	}
-	return def
-}
-
-func readStringMapOpt(l *lua.State, tableIdx int, key string) map[string]string {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil || t != lua.TypTable {
-		l.Pop(1)
-		return nil
-	}
-
-	result := make(map[string]string)
-	subIdx := l.AbsIndex(-1)
-
-	l.ForEachRaw(subIdx, func() bool {
-		k := l.GetRaw(-2)
-		if ks, ok := k.(string); ok {
-			v := l.GetRaw(-1)
-			if vs, ok := v.(string); ok {
-				result[ks] = vs
-			}
-		}
-		return true
-	})
-
-	l.Pop(1)
-	if len(result) == 0 {
-		return nil
-	}
-	return result
 }

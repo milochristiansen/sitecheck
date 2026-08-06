@@ -5,13 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 func TestTCPResultInterface(t *testing.T) {
 	r := &TCPResult{
-		Pass:           protocol.PASS,
+		Pass:           core.PASS,
 		FailReason:     "",
 		Host:           "example.com",
 		Port:           443,
@@ -22,8 +21,8 @@ func TestTCPResultInterface(t *testing.T) {
 	if r.CheckType() != "tcp" {
 		t.Errorf("CheckType = %q, want %q", r.CheckType(), "tcp")
 	}
-	if r.CheckPass() != protocol.PASS {
-		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), protocol.PASS)
+	if r.CheckPass() != core.PASS {
+		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), core.PASS)
 	}
 	if r.CheckFailReason() != "" {
 		t.Errorf("CheckFailReason = %q, want empty", r.CheckFailReason())
@@ -34,7 +33,7 @@ func TestTCPResultInterface(t *testing.T) {
 }
 
 func TestTCPPluginRegistration(t *testing.T) {
-	p, ok := registry.ByName("tcp")
+	p, ok := core.ByName("tcp")
 	if !ok {
 		t.Fatal("TCP plugin not registered — did init() run?")
 	}
@@ -47,7 +46,7 @@ func TestTCPPluginRegistration(t *testing.T) {
 }
 
 func TestTCPPluginCreateTableDDL(t *testing.T) {
-	p, _ := registry.ByName("tcp")
+	p, _ := core.ByName("tcp")
 	ddl := p.CreateTableDDL()
 	if len(ddl) != 2 {
 		t.Fatalf("CreateTableDDL returned %d statements, want 2", len(ddl))
@@ -58,7 +57,7 @@ func TestTCPPluginCreateTableDDL(t *testing.T) {
 }
 
 func TestTCPPluginCreateIndexDDL(t *testing.T) {
-	p, _ := registry.ByName("tcp")
+	p, _ := core.ByName("tcp")
 	ddl := p.CreateIndexDDL()
 	if len(ddl) != 1 {
 		t.Fatalf("CreateIndexDDL returned %d statements, want 1", len(ddl))
@@ -69,8 +68,8 @@ func TestTCPPluginCreateIndexDDL(t *testing.T) {
 }
 
 func TestTCPPluginDispatchWireResult(t *testing.T) {
-	p, _ := registry.ByName("tcp")
-	meta := registry.ResourceMeta{
+	p, _ := core.ByName("tcp")
+	meta := core.ResourceMeta{
 		Slug:           "test-tcp",
 		Name:           "Test TCP",
 		Desc:           "A test",
@@ -79,7 +78,7 @@ func TestTCPPluginDispatchWireResult(t *testing.T) {
 		NotifyFail:     true,
 	}
 	cr := &TCPResult{
-		Pass:           protocol.DEGRADED,
+		Pass:           core.DEGRADED,
 		FailReason:     "connection slow",
 		Host:           "example.com",
 		Port:           443,
@@ -97,8 +96,8 @@ func TestTCPPluginDispatchWireResult(t *testing.T) {
 	if wr.CheckType != "tcp" {
 		t.Errorf("CheckType = %q, want %q", wr.CheckType, "tcp")
 	}
-	if wr.Pass != protocol.DEGRADED {
-		t.Errorf("Pass = %d, want %d", wr.Pass, protocol.DEGRADED)
+	if wr.Pass != core.DEGRADED {
+		t.Errorf("Pass = %d, want %d", wr.Pass, core.DEGRADED)
 	}
 	if wr.FailReason != "connection slow" {
 		t.Errorf("FailReason = %q, want %q", wr.FailReason, "connection slow")
@@ -121,17 +120,17 @@ func TestTCPPluginDispatchWireResult(t *testing.T) {
 }
 
 func TestTCPPluginExtractPoints(t *testing.T) {
-	p, _ := registry.ByName("tcp")
+	p, _ := core.ByName("tcp")
 	history := []TCPCheck{
-		{Pass: protocol.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
-		{Pass: protocol.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
+		{Pass: core.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
+		{Pass: core.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
 	}
 	pts := p.ExtractPoints(history)
 	if len(pts) != 2 {
 		t.Fatalf("ExtractPoints = %d points, want 2", len(pts))
 	}
-	if pts[0].Pass != protocol.PASS {
-		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, protocol.PASS)
+	if pts[0].Pass != core.PASS {
+		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, core.PASS)
 	}
 	if pts[1].Resp != 0.0 {
 		t.Errorf("pts[1].Resp = %f, want 0.0", pts[1].Resp)
@@ -139,7 +138,7 @@ func TestTCPPluginExtractPoints(t *testing.T) {
 }
 
 func TestTCPPluginExtractPointsNil(t *testing.T) {
-	p, _ := registry.ByName("tcp")
+	p, _ := core.ByName("tcp")
 	pts := p.ExtractPoints(nil)
 	if pts != nil {
 		t.Errorf("ExtractPoints(nil) = %v, want nil", pts)
@@ -147,7 +146,7 @@ func TestTCPPluginExtractPointsNil(t *testing.T) {
 }
 
 func TestTCPPluginExtractDurationPoints(t *testing.T) {
-	p, _ := registry.ByName("tcp")
+	p, _ := core.ByName("tcp")
 	pts := p.ExtractDurationPoints([]TCPCheck{})
 	if pts != nil {
 		t.Errorf("ExtractDurationPoints should return nil for TCP")
@@ -155,11 +154,11 @@ func TestTCPPluginExtractDurationPoints(t *testing.T) {
 }
 
 func TestTCPPluginLatestRecent(t *testing.T) {
-	p, _ := registry.ByName("tcp")
+	p, _ := core.ByName("tcp")
 	history := []TCPCheck{
-		{ID: 1, Pass: protocol.FAIL},
-		{ID: 2, Pass: protocol.PASS},
-		{ID: 3, Pass: protocol.DEGRADED},
+		{ID: 1, Pass: core.FAIL},
+		{ID: 2, Pass: core.PASS},
+		{ID: 3, Pass: core.DEGRADED},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -177,7 +176,7 @@ func TestTCPPluginLatestRecent(t *testing.T) {
 }
 
 func TestTCPPluginLatestRecentEmpty(t *testing.T) {
-	p, _ := registry.ByName("tcp")
+	p, _ := core.ByName("tcp")
 	latest, recent, count := p.LatestRecent([]TCPCheck{}, 15)
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
@@ -185,9 +184,9 @@ func TestTCPPluginLatestRecentEmpty(t *testing.T) {
 }
 
 func TestTCPPluginLatestRecentSingle(t *testing.T) {
-	p, _ := registry.ByName("tcp")
+	p, _ := core.ByName("tcp")
 	history := []TCPCheck{
-		{ID: 42, Pass: protocol.PASS, Host: "example.com", Port: 443},
+		{ID: 42, Pass: core.PASS, Host: "example.com", Port: 443},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -206,7 +205,7 @@ func TestTCPPluginLatestRecentSingle(t *testing.T) {
 }
 
 func TestTCPPluginTemplateNames(t *testing.T) {
-	p, _ := registry.ByName("tcp")
+	p, _ := core.ByName("tcp")
 	row, body := p.TemplateNames()
 	if row != "check_tcp_row" {
 		t.Errorf("row template = %q, want %q", row, "check_tcp_row")

@@ -10,9 +10,8 @@ import (
 
 	"github.com/milochristiansen/lua"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
 	"sitecheck/cmd/scoutpost/lmods"
+	"sitecheck/core"
 )
 
 // Resource represents a single check script discovered in the resources directory.
@@ -28,9 +27,9 @@ type Resource struct {
 	Sites          map[string]string // site name → detail level
 }
 
-// toRegistryMeta converts this Resource to a registry.ResourceMeta for plugin dispatch.
-func (r Resource) toRegistryMeta() registry.ResourceMeta {
-	return registry.ResourceMeta{
+// toRegistryMeta converts this Resource to a core.ResourceMeta for plugin dispatch.
+func (r Resource) toRegistryMeta() core.ResourceMeta {
+	return core.ResourceMeta{
 		Slug:           r.Slug,
 		Name:           r.Name,
 		Desc:           r.Desc,
@@ -46,10 +45,10 @@ type Job struct {
 }
 
 // Pool manages a fixed set of worker goroutines that execute check jobs concurrently, each with its own Lua state.
-// Results are sent as protocol.WireResult values.
+// Results are sent as core.WireResult values.
 type Pool struct {
 	jobs           chan Job
-	results        chan protocol.WireResult
+	results        chan core.WireResult
 	defaultTimeout int
 	wg             sync.WaitGroup
 }
@@ -58,7 +57,7 @@ type Pool struct {
 func NewPool(n int, defaultTimeout int) *Pool {
 	p := &Pool{
 		jobs:           make(chan Job),
-		results:        make(chan protocol.WireResult),
+		results:        make(chan core.WireResult),
 		defaultTimeout: defaultTimeout,
 	}
 	for range n {
@@ -67,7 +66,7 @@ func NewPool(n int, defaultTimeout int) *Pool {
 			defer p.wg.Done()
 			l, err := lmods.NewState(defaultTimeout)
 			if err != nil {
-				p.results <- protocol.WireResult{CheckType: protocol.CheckTypeLuaError, Error: fmt.Sprintf("create lua state: %v", err), Version: protocol.WireVersion}
+				p.results <- luaErrorResult(Resource{}, fmt.Sprintf("create lua state: %v", err), 0)
 				return
 			}
 			for job := range p.jobs {
@@ -76,34 +75,12 @@ func NewPool(n int, defaultTimeout int) *Pool {
 				}
 				// Load and execute the Lua script file.
 				if err := lmods.ExecuteFile(l, job.Resource.ScriptPath); err != nil {
-					p.results <- protocol.WireResult{
-						Slug:           job.Resource.Slug,
-						Name:           job.Resource.Name,
-						Desc:           job.Resource.Desc,
-						NotifyPass:     job.Resource.NotifyPass,
-						NotifyDegraded: job.Resource.NotifyDegraded,
-						NotifyFail:     job.Resource.NotifyFail,
-						Sites:          job.Resource.Sites,
-						Version:        protocol.WireVersion,
-						CheckType:      protocol.CheckTypeLuaError,
-						Error:          err.Error(),
-					}
+					p.results <- luaErrorResult(job.Resource, err.Error(), 0)
 					continue
 				}
 				// Run meta() to populate resource fields.
 				if err := PopulateMeta(l, &job.Resource); err != nil {
-					p.results <- protocol.WireResult{
-						Slug:           job.Resource.Slug,
-						Name:           job.Resource.Name,
-						Desc:           job.Resource.Desc,
-						NotifyPass:     job.Resource.NotifyPass,
-						NotifyDegraded: job.Resource.NotifyDegraded,
-						NotifyFail:     job.Resource.NotifyFail,
-						Sites:          job.Resource.Sites,
-						Version:        protocol.WireVersion,
-						CheckType:      protocol.CheckTypeLuaError,
-						Error:          err.Error(),
-					}
+					p.results <- luaErrorResult(job.Resource, err.Error(), 0)
 					continue
 				}
 				if job.Resource.Skip {
@@ -129,7 +106,7 @@ func (p *Pool) Wait() {
 }
 
 // Results returns the channel on which check results are delivered.
-func (p *Pool) Results() <-chan protocol.WireResult {
+func (p *Pool) Results() <-chan core.WireResult {
 	return p.results
 }
 
@@ -157,24 +134,17 @@ func ScanResources(dir string) ([]Resource, error) {
 // PopulateMeta executes the script's meta() function if present, filling in Name, Description, and notify fields on the
 // resource.
 func PopulateMeta(l *lua.State, res *Resource) error {
-	l.Push("meta")
-	t := l.GetTableRaw(lua.GlobalsIndex)
-	if t == lua.TypNil || t != lua.TypFunction {
-		l.Pop(1)
+	ok, err := core.CallMeta(l)
+	if err != nil {
+		return fmt.Errorf("call meta() for %s: %w", res.Slug, err)
+	}
+	if !ok {
 		return nil
 	}
 
-	err := l.Protect(func() {
-		l.Call(0, 1)
-	})
-	if err != nil {
-		l.Pop(1)
-		return fmt.Errorf("call meta() for %s: %w", res.Slug, err)
-	}
-
 	if l.TypeOf(-1) == lua.TypTable {
-		name := lmods.ReadStringField(l, -1, "name", "")
-		desc := lmods.ReadStringField(l, -1, "description", "")
+		name := core.ReadStringField(l, -1, "name", "")
+		desc := core.ReadStringField(l, -1, "description", "")
 		if name != "" {
 			res.Name = name
 		}
@@ -182,19 +152,19 @@ func PopulateMeta(l *lua.State, res *Resource) error {
 			res.Desc = desc
 		}
 
-		res.Skip = lmods.ReadBoolField(l, -1, "skip", false)
+		res.Skip = core.ReadBoolField(l, -1, "skip", false)
 
 		// Read notify sub-table if present. Values are booleans (wire protocol).
 		l.Push("notify")
 		if l.GetTableRaw(-2) == lua.TypTable {
-			res.NotifyPass = lmods.ReadBoolField(l, -1, "pass", true)
-			res.NotifyDegraded = lmods.ReadBoolField(l, -1, "degraded", true)
-			res.NotifyFail = lmods.ReadBoolField(l, -1, "fail", true)
+			res.NotifyPass = core.ReadBoolField(l, -1, "pass", true)
+			res.NotifyDegraded = core.ReadBoolField(l, -1, "degraded", true)
+			res.NotifyFail = core.ReadBoolField(l, -1, "fail", true)
 		}
 		l.Pop(1)
 
 		// Read sites sub-table if present. Map of site name → detail level.
-		sites, err := lmods.ReadStringMap(l, -1, "sites")
+		sites, err := core.ReadStringMap(l, -1, "sites")
 		if err != nil {
 			l.Pop(1)
 			return fmt.Errorf("meta() for %s: %w", res.Slug, err)
@@ -205,24 +175,13 @@ func PopulateMeta(l *lua.State, res *Resource) error {
 	return nil
 }
 
-// RunCheck executes a script's check() function and returns a protocol.WireResult.
-func RunCheck(l *lua.State, res Resource) protocol.WireResult {
+// RunCheck executes a script's check() function and returns a core.WireResult.
+func RunCheck(l *lua.State, res Resource) core.WireResult {
 	l.Push("check")
 	t := l.GetTableRaw(lua.GlobalsIndex)
 	if t == lua.TypNil || t != lua.TypFunction {
 		l.Pop(1)
-		return protocol.WireResult{
-			Slug:           res.Slug,
-			Name:           res.Name,
-			Desc:           res.Desc,
-			NotifyPass:     res.NotifyPass,
-			NotifyDegraded: res.NotifyDegraded,
-			NotifyFail:     res.NotifyFail,
-			Sites:          res.Sites,
-			Version:        protocol.WireVersion,
-			CheckType:      protocol.CheckTypeLuaError,
-			Error:          fmt.Sprintf("resource %s: check() function not found", res.Slug),
-		}
+		return luaErrorResult(res, fmt.Sprintf("resource %s: check() function not found", res.Slug), 0)
 	}
 
 	start := time.Now()
@@ -233,78 +192,48 @@ func RunCheck(l *lua.State, res Resource) protocol.WireResult {
 
 	if err != nil {
 		l.Pop(1)
-		return protocol.WireResult{
-			Slug:           res.Slug,
-			Name:           res.Name,
-			Desc:           res.Desc,
-			NotifyPass:     res.NotifyPass,
-			NotifyDegraded: res.NotifyDegraded,
-			Sites:          res.Sites,
-			Version:        protocol.WireVersion,
-			NotifyFail:     res.NotifyFail,
-			ElapsedMS:      elapsed.Milliseconds(),
-			CheckType:      protocol.CheckTypeLuaError,
-			Error:          err.Error(),
-		}
+		return luaErrorResult(res, err.Error(), elapsed.Milliseconds())
 	}
 
 	if l.TypeOf(-1) != lua.TypUserData {
 		l.Pop(1)
-		return protocol.WireResult{
-			Slug:           res.Slug,
-			Name:           res.Name,
-			Desc:           res.Desc,
-			NotifyPass:     res.NotifyPass,
-			NotifyDegraded: res.NotifyDegraded,
-			Sites:          res.Sites,
-			Version:        protocol.WireVersion,
-			NotifyFail:     res.NotifyFail,
-			ElapsedMS:      elapsed.Milliseconds(),
-			CheckType:      protocol.CheckTypeLuaError,
-			Error:          "check() did not return userdata",
-		}
+		return luaErrorResult(res, "check() did not return userdata", elapsed.Milliseconds())
 	}
 
 	raw := l.ToUser(-1)
 	l.Pop(1)
 
-	cr, ok := raw.(protocol.CheckResult)
+	cr, ok := raw.(core.CheckResult)
 	if !ok {
-		return protocol.WireResult{
-			Slug:           res.Slug,
-			Name:           res.Name,
-			Desc:           res.Desc,
-			NotifyPass:     res.NotifyPass,
-			NotifyDegraded: res.NotifyDegraded,
-			Sites:          res.Sites,
-			Version:        protocol.WireVersion,
-			NotifyFail:     res.NotifyFail,
-			ElapsedMS:      elapsed.Milliseconds(),
-			CheckType:      protocol.CheckTypeLuaError,
-			Error:          fmt.Sprintf("check() result type %T does not implement CheckResult", raw),
-		}
+		return luaErrorResult(res, fmt.Sprintf("check() result type %T does not implement CheckResult", raw), elapsed.Milliseconds())
 	}
 
-	p, ok := registry.ByName(cr.CheckType())
+	p, ok := core.ByName(cr.CheckType())
 	if !ok {
-		return protocol.WireResult{
-			Slug:           res.Slug,
-			Name:           res.Name,
-			Desc:           res.Desc,
-			NotifyPass:     res.NotifyPass,
-			NotifyDegraded: res.NotifyDegraded,
-			Sites:          res.Sites,
-			Version:        protocol.WireVersion,
-			NotifyFail:     res.NotifyFail,
-			ElapsedMS:      elapsed.Milliseconds(),
-			CheckType:      protocol.CheckTypeLuaError,
-			Error:          fmt.Sprintf("unknown check type %q", cr.CheckType()),
-		}
+		return luaErrorResult(res, fmt.Sprintf("unknown check type %q", cr.CheckType()), elapsed.Milliseconds())
 	}
 	wr := p.DispatchWireResult(res.toRegistryMeta(), cr, elapsed)
 	wr.Sites = res.Sites
-	wr.Version = protocol.WireVersion
+	wr.Version = core.WireVersion
 	return wr
+}
+
+// luaErrorResult builds the Lua-error WireResult for a resource, carrying the
+// resource's metadata and the given error message.
+func luaErrorResult(res Resource, errMsg string, elapsedMS int64) core.WireResult {
+	return core.WireResult{
+		Slug:           res.Slug,
+		Name:           res.Name,
+		Desc:           res.Desc,
+		NotifyPass:     res.NotifyPass,
+		NotifyDegraded: res.NotifyDegraded,
+		NotifyFail:     res.NotifyFail,
+		Sites:          res.Sites,
+		Version:        core.WireVersion,
+		CheckType:      core.CheckTypeLuaError,
+		Error:          errMsg,
+		ElapsedMS:      elapsedMS,
+	}
 }
 
 func titleCase(s string) string {

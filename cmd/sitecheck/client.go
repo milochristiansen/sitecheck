@@ -2,21 +2,21 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // Client executes checks by communicating with a scoutpost outpost.
 type Client interface {
 	// Run starts the outpost and returns a channel of results. The channel is closed when all results have been delivered.
-	Run() (<-chan protocol.WireResult, error)
+	Run() (<-chan core.WireResult, error)
 }
 
 // LocalClient runs the scoutpost binary as a local subprocess in CGI mode.
@@ -37,9 +37,9 @@ func NewLocalClient(bin, resourcesDir string, timeout int) *LocalClient {
 	}
 }
 
-// Run spawns the scoutpost binary with CGI environment variables and returns a channel of protocol.WireResult values
+// Run spawns the scoutpost binary with CGI environment variables and returns a channel of core.WireResult values
 // parsed from its stdout.
-func (c *LocalClient) Run() (<-chan protocol.WireResult, error) {
+func (c *LocalClient) Run() (<-chan core.WireResult, error) {
 	// Try to find the binary. First check the configured path, then $PATH.
 	binPath, err := exec.LookPath(c.bin)
 	if err != nil {
@@ -66,7 +66,7 @@ func (c *LocalClient) Run() (<-chan protocol.WireResult, error) {
 		return nil, fmt.Errorf("start scoutpost: %w", err)
 	}
 
-	ch := make(chan protocol.WireResult)
+	ch := make(chan core.WireResult)
 
 	go func() {
 		defer close(ch)
@@ -83,7 +83,6 @@ func (c *LocalClient) Run() (<-chan protocol.WireResult, error) {
 
 	return ch, nil
 }
-
 
 // HTTPClient runs checks by making an HTTP GET to a remote scoutpost outpost.
 type HTTPClient struct {
@@ -102,7 +101,7 @@ func NewHTTPClient(url, token string, timeout int) *HTTPClient {
 }
 
 // Run sends an HTTP GET to the outpost URL with a bearer token and streams JSON-lines results from the response body.
-func (c *HTTPClient) Run() (<-chan protocol.WireResult, error) {
+func (c *HTTPClient) Run() (<-chan core.WireResult, error) {
 	req, err := http.NewRequest("GET", c.url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -120,11 +119,11 @@ func (c *HTTPClient) Run() (<-chan protocol.WireResult, error) {
 		return nil, fmt.Errorf("outpost returned status %d", resp.StatusCode)
 	}
 
-	ch := make(chan protocol.WireResult)
+	ch := make(chan core.WireResult)
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
-		for wr := range protocol.ReadResults(resp.Body) {
+		for wr := range core.ReadResults(resp.Body) {
 			ch <- wr
 		}
 	}()
@@ -133,42 +132,31 @@ func (c *HTTPClient) Run() (<-chan protocol.WireResult, error) {
 }
 
 // parseCGIResponse reads CGI headers from r, then streams JSON-lines results to ch until EOF.
-func parseCGIResponse(r io.Reader, ch chan<- protocol.WireResult) error {
-	scanner := bufio.NewScanner(r)
+func parseCGIResponse(r io.Reader, ch chan<- core.WireResult) error {
+	br := bufio.NewReader(r)
 
-	// Read CGI headers until blank line.
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			break
+	// Read CGI headers until the blank line. A non-200 Status header drains
+	for {
+		line, err := br.ReadString('\n')
+		header := strings.TrimRight(line, "\r\n")
+		if header == "" {
+			break // blank line, or EOF without one — either ends the headers
 		}
-		// Check for non-200 status.
-		if len(line) > 7 && line[:7] == "Status:" {
-			status := line[7:]
-			if len(status) > 0 && status[0] == ' ' {
-				status = status[1:]
-			}
-			if status != "" && status[:3] != "200" {
-				// Read the rest of the error body and discard.
-				for scanner.Scan() {
-				}
+		if strings.HasPrefix(header, "Status:") {
+			status := strings.TrimSpace(strings.TrimPrefix(header, "Status:"))
+			if status != "" && !strings.HasPrefix(status, "200") {
+				io.Copy(io.Discard, br)
 				return fmt.Errorf("outpost returned status: %s", status)
 			}
+		}
+		if err != nil {
+			break // EOF between headers: proceed to the (empty) body.
 		}
 	}
 
 	// Read JSON-lines body.
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		var wr protocol.WireResult
-		if err := json.Unmarshal(line, &wr); err != nil {
-			fmt.Fprintf(os.Stderr, "parse result line error: %v\n", err)
-			continue
-		}
+	for wr := range core.ReadResults(br) {
 		ch <- wr
 	}
-	return scanner.Err()
+	return nil
 }

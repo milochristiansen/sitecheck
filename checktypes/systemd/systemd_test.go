@@ -5,15 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // --- Result interface ---------------------------------------------------------
 
 func TestSystemdResultInterface(t *testing.T) {
 	r := &SystemdResult{
-		Pass:           protocol.PASS,
+		Pass:           core.PASS,
 		FailReason:     "",
 		ResponseTimeMS: 12.5,
 		ServiceName:    "nginx.service",
@@ -24,8 +23,8 @@ func TestSystemdResultInterface(t *testing.T) {
 	if r.CheckType() != "systemd" {
 		t.Errorf("CheckType = %q, want %q", r.CheckType(), "systemd")
 	}
-	if r.CheckPass() != protocol.PASS {
-		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), protocol.PASS)
+	if r.CheckPass() != core.PASS {
+		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), core.PASS)
 	}
 	if r.CheckFailReason() != "" {
 		t.Errorf("CheckFailReason = %q, want empty", r.CheckFailReason())
@@ -38,7 +37,7 @@ func TestSystemdResultInterface(t *testing.T) {
 // --- Plugin registration -----------------------------------------------------
 
 func TestSystemdPluginRegistration(t *testing.T) {
-	p, ok := registry.ByName("systemd")
+	p, ok := core.ByName("systemd")
 	if !ok {
 		t.Fatal("systemd plugin not registered — did init() run?")
 	}
@@ -53,7 +52,7 @@ func TestSystemdPluginRegistration(t *testing.T) {
 // --- DDL --------------------------------------------------------------------
 
 func TestSystemdPluginCreateTableDDL(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	ddl := p.CreateTableDDL()
 	if len(ddl) != 1 {
 		t.Fatalf("CreateTableDDL returned %d statements, want 1", len(ddl))
@@ -64,7 +63,7 @@ func TestSystemdPluginCreateTableDDL(t *testing.T) {
 }
 
 func TestSystemdPluginCreateIndexDDL(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	ddl := p.CreateIndexDDL()
 	if len(ddl) != 3 {
 		t.Fatalf("CreateIndexDDL returned %d statements, want 3", len(ddl))
@@ -77,8 +76,8 @@ func TestSystemdPluginCreateIndexDDL(t *testing.T) {
 // --- DispatchWireResult -----------------------------------------------------
 
 func TestSystemdPluginDispatchWireResult(t *testing.T) {
-	p, _ := registry.ByName("systemd")
-	meta := registry.ResourceMeta{
+	p, _ := core.ByName("systemd")
+	meta := core.ResourceMeta{
 		Slug:           "test-systemd",
 		Name:           "Test Systemd",
 		Desc:           "A test",
@@ -87,7 +86,7 @@ func TestSystemdPluginDispatchWireResult(t *testing.T) {
 		NotifyFail:     true,
 	}
 	cr := &SystemdResult{
-		Pass:           protocol.DEGRADED,
+		Pass:           core.DEGRADED,
 		FailReason:     "service inactive",
 		ServiceName:    "nginx.service",
 		ActiveState:    "inactive",
@@ -107,8 +106,8 @@ func TestSystemdPluginDispatchWireResult(t *testing.T) {
 	if wr.CheckType != "systemd" {
 		t.Errorf("CheckType = %q, want %q", wr.CheckType, "systemd")
 	}
-	if wr.Pass != protocol.DEGRADED {
-		t.Errorf("Pass = %d, want %d", wr.Pass, protocol.DEGRADED)
+	if wr.Pass != core.DEGRADED {
+		t.Errorf("Pass = %d, want %d", wr.Pass, core.DEGRADED)
 	}
 	if wr.FailReason != "service inactive" {
 		t.Errorf("FailReason = %q, want %q", wr.FailReason, "service inactive")
@@ -136,17 +135,17 @@ func TestSystemdPluginDispatchWireResult(t *testing.T) {
 // --- ExtractPoints ----------------------------------------------------------
 
 func TestSystemdPluginExtractPoints(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	history := []SystemdCheck{
-		{Pass: protocol.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
-		{Pass: protocol.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
+		{Pass: core.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
+		{Pass: core.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
 	}
 	pts := p.ExtractPoints(history)
 	if len(pts) != 2 {
 		t.Fatalf("ExtractPoints = %d points, want 2", len(pts))
 	}
-	if pts[0].Pass != protocol.PASS {
-		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, protocol.PASS)
+	if pts[0].Pass != core.PASS {
+		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, core.PASS)
 	}
 	if pts[1].Resp != 0.0 {
 		t.Errorf("pts[1].Resp = %f, want 0.0", pts[1].Resp)
@@ -154,7 +153,7 @@ func TestSystemdPluginExtractPoints(t *testing.T) {
 }
 
 func TestSystemdPluginExtractPointsNil(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	pts := p.ExtractPoints(nil)
 	if pts != nil {
 		t.Errorf("ExtractPoints(nil) = %v, want nil", pts)
@@ -164,7 +163,7 @@ func TestSystemdPluginExtractPointsNil(t *testing.T) {
 // --- ExtractDurationPoints ---------------------------------------------------
 
 func TestSystemdPluginExtractDurationPoints(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	pts := p.ExtractDurationPoints([]SystemdCheck{})
 	if pts != nil {
 		t.Errorf("ExtractDurationPoints should return nil for systemd")
@@ -174,11 +173,11 @@ func TestSystemdPluginExtractDurationPoints(t *testing.T) {
 // --- LatestRecent ------------------------------------------------------------
 
 func TestSystemdPluginLatestRecent(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	history := []SystemdCheck{
-		{ID: 1, Pass: protocol.FAIL, ServiceName: "sshd.service"},
-		{ID: 2, Pass: protocol.PASS, ServiceName: "sshd.service"},
-		{ID: 3, Pass: protocol.DEGRADED, ServiceName: "sshd.service"},
+		{ID: 1, Pass: core.FAIL, ServiceName: "sshd.service"},
+		{ID: 2, Pass: core.PASS, ServiceName: "sshd.service"},
+		{ID: 3, Pass: core.DEGRADED, ServiceName: "sshd.service"},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -201,7 +200,7 @@ func TestSystemdPluginLatestRecent(t *testing.T) {
 }
 
 func TestSystemdPluginLatestRecentEmpty(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	latest, recent, count := p.LatestRecent([]SystemdCheck{}, 15)
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
@@ -209,9 +208,9 @@ func TestSystemdPluginLatestRecentEmpty(t *testing.T) {
 }
 
 func TestSystemdPluginLatestRecentSingle(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	history := []SystemdCheck{
-		{ID: 42, Pass: protocol.PASS, ServiceName: "nginx.service"},
+		{ID: 42, Pass: core.PASS, ServiceName: "nginx.service"},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -234,11 +233,11 @@ func TestSystemdPluginLatestRecentSingle(t *testing.T) {
 }
 
 func TestSystemdPluginLatestRecentBounded(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	history := []SystemdCheck{
-		{ID: 1, Pass: protocol.FAIL},
-		{ID: 2, Pass: protocol.PASS},
-		{ID: 3, Pass: protocol.DEGRADED},
+		{ID: 1, Pass: core.FAIL},
+		{ID: 2, Pass: core.PASS},
+		{ID: 3, Pass: core.DEGRADED},
 	}
 	// maxRecent=1 should limit the recent slice to 1 element.
 	latest, recent, count := p.LatestRecent(history, 1)
@@ -266,7 +265,7 @@ func TestSystemdPluginLatestRecentBounded(t *testing.T) {
 // --- Templates --------------------------------------------------------------
 
 func TestSystemdPluginTemplateNames(t *testing.T) {
-	p, _ := registry.ByName("systemd")
+	p, _ := core.ByName("systemd")
 	row, body := p.TemplateNames()
 	if row != "check_systemd_row" {
 		t.Errorf("row template = %q, want %q", row, "check_systemd_row")
@@ -275,7 +274,6 @@ func TestSystemdPluginTemplateNames(t *testing.T) {
 		t.Errorf("body template = %q, want %q", body, "check_systemd_body")
 	}
 }
-
 
 // --- dbusValueString --------------------------------------------------------
 

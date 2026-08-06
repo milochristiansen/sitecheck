@@ -1,4 +1,4 @@
-package registry
+package core
 
 import (
 	"database/sql"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/milochristiansen/lua"
-	"sitecheck/protocol"
 )
 
 // --- Mock -------------------------------------------------------------------
@@ -19,10 +18,10 @@ type testPlugin struct {
 	tableName string
 }
 
-func (p *testPlugin) TypeName() string                         { return p.name }
-func (p *testPlugin) TableName() string                        { return p.tableName }
-func (p *testPlugin) CreateTableDDL() []string                 { return nil }
-func (p *testPlugin) CreateIndexDDL() []string                 { return nil }
+func (p *testPlugin) TypeName() string         { return p.name }
+func (p *testPlugin) TableName() string        { return p.tableName }
+func (p *testPlugin) CreateTableDDL() []string { return nil }
+func (p *testPlugin) CreateIndexDDL() []string { return nil }
 func (p *testPlugin) Insert(_ *sql.DB, _, _ string, _ int64, _ json.RawMessage) error {
 	return nil
 }
@@ -32,17 +31,16 @@ func (p *testPlugin) InsertError(_ *sql.DB, _, _ string, _ int64, _ int, _ strin
 func (p *testPlugin) QuerySince(_ *sql.DB, _, _ string, _ time.Time) (interface{}, error) {
 	return nil, nil
 }
-func (p *testPlugin) ExtractPoints(_ interface{}) []CheckPoint              { return nil }
-func (p *testPlugin) ExtractDurationPoints(_ interface{}) []CheckPoint      { return nil }
+func (p *testPlugin) ExtractPoints(_ interface{}) []CheckPoint         { return nil }
+func (p *testPlugin) ExtractDurationPoints(_ interface{}) []CheckPoint { return nil }
 func (p *testPlugin) LatestRecent(_ interface{}, _ int) (latest, recent interface{}, count int) {
 	return nil, nil, 0
 }
 func (p *testPlugin) RegisterLua(_ *lua.State, _ int) { /* requires real Lua state — skip */ }
-func (p *testPlugin) DispatchWireResult(_ ResourceMeta, _ protocol.CheckResult, _ time.Duration) protocol.WireResult {
-	return protocol.WireResult{}
+func (p *testPlugin) DispatchWireResult(_ ResourceMeta, _ CheckResult, _ time.Duration) WireResult {
+	return WireResult{}
 }
 func (p *testPlugin) TemplateNames() (row, body string) { return "", "" }
-
 
 // --- Tests ------------------------------------------------------------------
 

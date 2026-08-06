@@ -10,7 +10,7 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
-	"sitecheck/checktypes/registry"
+	"sitecheck/core"
 )
 
 // DB wraps *sql.DB with SiteCheck-specific operations.
@@ -40,7 +40,7 @@ func Open(path string) (*DB, error) {
 
 // Migrate creates all check tables and indexes if they don't exist.
 func (db *DB) Migrate() error {
-	for _, p := range registry.All() {
+	for _, p := range core.All() {
 		for _, ddl := range p.CreateTableDDL() {
 			if _, err := db.Exec(ddl); err != nil {
 				if strings.Contains(err.Error(), "duplicate column") {
@@ -114,14 +114,14 @@ func (db *DB) ResourceMeta(slug, outpostSlug string) (map[string]string, bool) {
 // UNKNOWN (-1) rows are skipped — they are core-injected sentinels for outpost connectivity, not real check results.
 // Returns (0, false, nil) when no prior real check exists.
 func (db *DB) LastPass(slug, outpostSlug, checkType string) (int, bool, error) {
-	p, ok := registry.ByName(checkType)
+	p, ok := core.ByName(checkType)
 	if !ok {
 		return 0, false, fmt.Errorf("unknown check type %q", checkType)
 	}
 	table := p.TableName()
 	var pass int
 	err := db.QueryRow(
-		`SELECT pass FROM `+table+` WHERE slug = ? AND outpost_slug = ? AND pass != -1 ORDER BY timestamp DESC LIMIT 1`,
+		fmt.Sprintf("SELECT pass FROM %s WHERE slug = ? AND outpost_slug = ? AND pass != %d ORDER BY timestamp DESC LIMIT 1", table, core.UNKNOWN),
 		slug, outpostSlug,
 	).Scan(&pass)
 	if err == sql.ErrNoRows {
@@ -136,7 +136,7 @@ func (db *DB) LastPass(slug, outpostSlug, checkType string) (int, bool, error) {
 // PurgeOld deletes rows older than retentionDays across all check tables.
 func (db *DB) PurgeOld(retentionDays int) error {
 	cutoff := time.Now().AddDate(0, 0, -retentionDays).UTC().Format("2006-01-02 15:04:05")
-	for _, p := range registry.All() {
+	for _, p := range core.All() {
 		_, err := db.Exec("DELETE FROM "+p.TableName()+" WHERE timestamp < ?", cutoff)
 		if err != nil {
 			return fmt.Errorf("purge %s: %w", p.TableName(), err)
@@ -153,7 +153,7 @@ func (db *DB) DistinctSlugsByOutpost(outpostSlug string) ([]SlugType, error) {
 		typ  string
 	}
 	seen := map[pair]bool{}
-	for _, p := range registry.All() {
+	for _, p := range core.All() {
 		rows, err := db.Query(
 			"SELECT DISTINCT slug FROM "+p.TableName()+" WHERE outpost_slug = ?",
 			outpostSlug,
@@ -184,7 +184,7 @@ func (db *DB) DistinctSlugsByOutpost(outpostSlug string) ([]SlugType, error) {
 // LookupCheckType returns the check type for a given slug+outpostSlug by scanning all check tables.
 // Returns ("", false) if no prior history exists.
 func (db *DB) LookupCheckType(slug, outpostSlug string) (string, bool) {
-	for _, p := range registry.All() {
+	for _, p := range core.All() {
 		var count int
 		if err := db.QueryRow(
 			"SELECT COUNT(*) FROM "+p.TableName()+" WHERE slug = ? AND outpost_slug = ?",

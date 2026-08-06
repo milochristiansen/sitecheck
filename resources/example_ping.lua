@@ -12,7 +12,7 @@ function check()
         timeout = 5,
     })
 
-    if r.Error ~= nil then
+    if r.Error ~= "" then
         r.FailReason = r.Error
         return r
     end

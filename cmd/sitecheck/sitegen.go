@@ -10,7 +10,7 @@ import (
 	"reflect"
 	"time"
 
-	"sitecheck/checktypes/registry"
+	"sitecheck/core"
 )
 
 // IndexData is the template data for index.html.
@@ -285,7 +285,7 @@ func buildCards(results []SiteResult) []ResourceCard {
 			card.FailReason = r.Err
 		}
 		if r.History != nil {
-			p, ok := registry.ByName(r.CheckType)
+			p, ok := core.ByName(r.CheckType)
 			if ok {
 				pts := extractPoints(r.History, p)
 				card.Uptime24h = calcUptimePct(lastNHours(pts, 24))
@@ -308,7 +308,7 @@ func countStatuses(cards []ResourceCard) (up, degraded, down, unknown int) {
 			degraded++
 		case 0:
 			down++
-		case -1:
+		case core.UNKNOWN:
 			unknown++
 		}
 	}
@@ -343,7 +343,7 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 	}
 
 	// Look up the plugin for this check type.
-	p, hasPlugin := registry.ByName(r.CheckType)
+	p, hasPlugin := core.ByName(r.CheckType)
 
 	if hasPlugin {
 		pts := extractPoints(r.History, p)
@@ -491,28 +491,31 @@ func (tr *templateRenderer) renderCard(level string, data interface{}) (template
 	return template.HTML(buf.String()), nil
 }
 
-// writeDetailPage renders a single resource detail page to disk. It creates its own template set
-// with renderCheck included; the page template comes from templates/<level>/resource.html and
-// the check-type row/body templates from templates/<level>/checks/*.html. The checks templates
-// are per-level and optional — a level whose resource.html never invokes renderCheck (e.g.
-// basic) simply omits the checks/ directory.
-func writeDetailPage(templatesDir, resourcesDir, level string, page ResourcePage) error {
-	if err := os.MkdirAll(resourcesDir, 0o755); err != nil {
-		return fmt.Errorf("create dir %s: %w", resourcesDir, err)
+// detailRenderers caches parsed detail template sets per templatesDir+level;
+// sitecheck renders many pages per level in a single run.
+var detailRenderers = map[string]*templateRenderer{}
+
+// detailRenderer parses (once per templatesDir+level) the page template from
+// templates/<level>/resource.html and the check-type row/body templates from
+// templates/<level>/checks/*.html. The checks templates are optional — a level
+// whose resource.html never invokes renderCheck (e.g. basic) simply omits the
+// checks/ directory.
+func detailRenderer(templatesDir, level string) (*templateRenderer, error) {
+	key := templatesDir + "/" + level
+	if tr, ok := detailRenderers[key]; ok {
+		return tr, nil
 	}
 
-	// Collect all template files including this level's check type templates.
 	allFiles := []string{
 		filepath.Join(templatesDir, "base.html"),
 		filepath.Join(templatesDir, level, "resource.html"),
 	}
 	files, err := filepath.Glob(filepath.Join(templatesDir, level, "checks", "*.html"))
 	if err != nil {
-		return fmt.Errorf("glob check templates: %w", err)
+		return nil, fmt.Errorf("glob check templates: %w", err)
 	}
 	allFiles = append(allFiles, files...)
 
-	// Create template with renderCheck function closure.
 	tr := &templateRenderer{}
 	tmpl := template.New("").Funcs(template.FuncMap{
 		"renderCheck":      tr.renderCheck,
@@ -525,9 +528,23 @@ func writeDetailPage(templatesDir, resourcesDir, level string, page ResourcePage
 		"windowLabel":      windowLabel,
 	})
 	if _, err := tmpl.ParseFiles(allFiles...); err != nil {
-		return fmt.Errorf("parse detail templates: %w", err)
+		return nil, fmt.Errorf("parse detail templates: %w", err)
 	}
 	tr.tmpl = tmpl
+	detailRenderers[key] = tr
+	return tr, nil
+}
+
+// writeDetailPage renders a single resource detail page to disk.
+func writeDetailPage(templatesDir, resourcesDir, level string, page ResourcePage) error {
+	if err := os.MkdirAll(resourcesDir, 0o755); err != nil {
+		return fmt.Errorf("create dir %s: %w", resourcesDir, err)
+	}
+
+	tr, err := detailRenderer(templatesDir, level)
+	if err != nil {
+		return err
+	}
 
 	outPath := filepath.Join(resourcesDir, page.Slug+".html")
 	f, err := os.Create(outPath)
@@ -536,7 +553,7 @@ func writeDetailPage(templatesDir, resourcesDir, level string, page ResourcePage
 	}
 	defer f.Close()
 
-	if err := tmpl.ExecuteTemplate(f, "base.html", page); err != nil {
+	if err := tr.tmpl.ExecuteTemplate(f, "base.html", page); err != nil {
 		return fmt.Errorf("render %s: %w", outPath, err)
 	}
 	fmt.Printf("  Wrote %s\n", outPath)
@@ -544,13 +561,13 @@ func writeDetailPage(templatesDir, resourcesDir, level string, page ResourcePage
 }
 
 // lastNHours returns points within the last n hours from the end of the slice.
-func lastNHours(pts []checkPoint, hours int) []checkPoint {
+func lastNHours(pts []core.CheckPoint, hours int) []core.CheckPoint {
 	if len(pts) == 0 {
 		return nil
 	}
 	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour).UTC().Format("2006-01-02 15:04:05")
 	for i := range pts {
-		if pts[i].ts >= cutoff {
+		if pts[i].TS >= cutoff {
 			return pts[i:]
 		}
 	}
@@ -559,7 +576,7 @@ func lastNHours(pts []checkPoint, hours int) []checkPoint {
 
 // lastN returns the last n points from the end of the slice, or all of them when
 // there are fewer than n. Points must be in chronological order (oldest first).
-func lastN(pts []checkPoint, n int) []checkPoint {
+func lastN(pts []core.CheckPoint, n int) []core.CheckPoint {
 	if len(pts) <= n {
 		return pts
 	}
@@ -567,20 +584,20 @@ func lastN(pts []checkPoint, n int) []checkPoint {
 }
 
 // calcRespStats returns avg, min, max response times from points.
-func calcRespStats(pts []checkPoint) (avg, min, max float64) {
+func calcRespStats(pts []core.CheckPoint) (avg, min, max float64) {
 	if len(pts) == 0 {
 		return 0, 0, 0
 	}
-	min = pts[0].resp
-	max = pts[0].resp
+	min = pts[0].Resp
+	max = pts[0].Resp
 	var sum float64
 	for _, p := range pts {
-		sum += p.resp
-		if p.resp < min {
-			min = p.resp
+		sum += p.Resp
+		if p.Resp < min {
+			min = p.Resp
 		}
-		if p.resp > max {
-			max = p.resp
+		if p.Resp > max {
+			max = p.Resp
 		}
 	}
 	return sum / float64(len(pts)), min, max

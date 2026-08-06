@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"strconv"
+
+	"sitecheck/envcfg"
 )
 
 // Config holds all parsed configuration values for the core.
@@ -27,20 +27,20 @@ type Config struct {
 // LoadConfig parses configuration from environment variables.
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
-		OutpostBin:      strEnv("SITECHECK_OUTPOST_BIN", "./scoutpost"),
-		OutpostWorkers:  intEnv("SITECHECK_OUTPOST_WORKERS", 4),
-		DefaultTimeout:  intEnv("SITECHECK_DEFAULT_TIMEOUT", 30),
-		OutpostsDir:     strEnv("SITECHECK_OUTPOSTS_DIR", "outposts"),
-		ResourcesDir:    strEnv("SITECHECK_RESOURCES_DIR", "resources"),
-		DBPath:          strEnv("SITECHECK_DB_PATH", "data/sitecheck.db"),
-		TemplatesDir:    strEnv("SITECHECK_TEMPLATES_DIR", "templates"),
-		OutputDir:       strEnv("SITECHECK_OUTPUT_DIR", "output"),
-		StaticDir:       strEnv("SITECHECK_STATIC_DIR", "static"),
-		SiteTitle:       strEnv("SITECHECK_SITE_TITLE", "SiteCheck Status"),
-		RetentionDays:   intEnv("SITECHECK_RETENTION_DAYS", 90),
-		NtfyServer:      strEnv("SITECHECK_NTFY_SERVER", ""),
-		TelegramToken:   strEnv("SITECHECK_TELEGRAM_TOKEN", ""),
-		TelegramChannel: strEnv("SITECHECK_TELEGRAM_CHANNEL", ""),
+		OutpostBin:      envcfg.Str("SITECHECK_OUTPOST_BIN", "./scoutpost"),
+		OutpostWorkers:  envcfg.Int("SITECHECK_OUTPOST_WORKERS", 4),
+		DefaultTimeout:  envcfg.Int("SITECHECK_DEFAULT_TIMEOUT", 30),
+		OutpostsDir:     envcfg.Str("SITECHECK_OUTPOSTS_DIR", "outposts"),
+		ResourcesDir:    envcfg.Str("SITECHECK_RESOURCES_DIR", "resources"),
+		DBPath:          envcfg.Str("SITECHECK_DB_PATH", "data/sitecheck.db"),
+		TemplatesDir:    envcfg.Str("SITECHECK_TEMPLATES_DIR", "templates"),
+		OutputDir:       envcfg.Str("SITECHECK_OUTPUT_DIR", "output"),
+		StaticDir:       envcfg.Str("SITECHECK_STATIC_DIR", "static"),
+		SiteTitle:       envcfg.Str("SITECHECK_SITE_TITLE", "SiteCheck Status"),
+		RetentionDays:   envcfg.Int("SITECHECK_RETENTION_DAYS", 90),
+		NtfyServer:      envcfg.Str("SITECHECK_NTFY_SERVER", ""),
+		TelegramToken:   envcfg.Str("SITECHECK_TELEGRAM_TOKEN", ""),
+		TelegramChannel: envcfg.Str("SITECHECK_TELEGRAM_CHANNEL", ""),
 	}
 	return cfg, cfg.validate()
 }
@@ -56,23 +56,4 @@ func (c *Config) validate() error {
 		return fmt.Errorf("SITECHECK_RETENTION_DAYS must be >= 1, got %d", c.RetentionDays)
 	}
 	return nil
-}
-
-func strEnv(key, fallback string) string {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		return v
-	}
-	return fallback
-}
-
-func intEnv(key string, fallback int) int {
-	raw, ok := os.LookupEnv(key)
-	if !ok || raw == "" {
-		return fallback
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil {
-		panic(fmt.Sprintf("%s must be an integer, got %q", key, raw))
-	}
-	return v
 }

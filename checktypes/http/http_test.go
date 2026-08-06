@@ -6,13 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 func TestHTTPResultInterface(t *testing.T) {
 	r := &HTTPResult{
-		Pass:           protocol.PASS,
+		Pass:           core.PASS,
 		FailReason:     "",
 		ResponseTimeMS: 42.5,
 		URL:            "https://example.com",
@@ -22,8 +21,8 @@ func TestHTTPResultInterface(t *testing.T) {
 	if r.CheckType() != "http" {
 		t.Errorf("CheckType = %q, want %q", r.CheckType(), "http")
 	}
-	if r.CheckPass() != protocol.PASS {
-		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), protocol.PASS)
+	if r.CheckPass() != core.PASS {
+		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), core.PASS)
 	}
 	if r.CheckFailReason() != "" {
 		t.Errorf("CheckFailReason = %q, want empty", r.CheckFailReason())
@@ -35,14 +34,14 @@ func TestHTTPResultInterface(t *testing.T) {
 
 func TestHTTPCheckResponseMSZero(t *testing.T) {
 	// Verify CheckResponseMS returns zero when ResponseTimeMS is unset.
-	r := &HTTPResult{Pass: protocol.FAIL}
+	r := &HTTPResult{Pass: core.FAIL}
 	if r.CheckResponseMS() != 0.0 {
 		t.Errorf("CheckResponseMS = %f, want 0.0", r.CheckResponseMS())
 	}
 }
 
 func TestHTTPPluginRegistration(t *testing.T) {
-	p, ok := registry.ByName("http")
+	p, ok := core.ByName("http")
 	if !ok {
 		t.Fatal("HTTP plugin not registered — did init() run?")
 	}
@@ -55,7 +54,7 @@ func TestHTTPPluginRegistration(t *testing.T) {
 }
 
 func TestHTTPPluginCreateTableDDL(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	ddl := p.CreateTableDDL()
 	if len(ddl) == 0 {
 		t.Fatalf("CreateTableDDL returned empty slice")
@@ -66,7 +65,7 @@ func TestHTTPPluginCreateTableDDL(t *testing.T) {
 }
 
 func TestHTTPPluginCreateIndexDDL(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	ddl := p.CreateIndexDDL()
 	if len(ddl) == 0 {
 		t.Fatalf("CreateIndexDDL returned empty slice")
@@ -77,7 +76,7 @@ func TestHTTPPluginCreateIndexDDL(t *testing.T) {
 }
 
 func TestHTTPPluginTemplateNames(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	row, body := p.TemplateNames()
 	if row != "check_http_row" {
 		t.Errorf("row template = %q, want %q", row, "check_http_row")
@@ -88,8 +87,8 @@ func TestHTTPPluginTemplateNames(t *testing.T) {
 }
 
 func TestHTTPPluginDispatchWireResult(t *testing.T) {
-	p, _ := registry.ByName("http")
-	meta := registry.ResourceMeta{
+	p, _ := core.ByName("http")
+	meta := core.ResourceMeta{
 		Slug:           "test-http",
 		Name:           "Test HTTP",
 		Desc:           "An HTTP check test",
@@ -98,7 +97,7 @@ func TestHTTPPluginDispatchWireResult(t *testing.T) {
 		NotifyFail:     true,
 	}
 	cr := &HTTPResult{
-		Pass:           protocol.DEGRADED,
+		Pass:           core.DEGRADED,
 		FailReason:     "slow response",
 		URL:            "https://example.com",
 		StatusCode:     200,
@@ -119,8 +118,8 @@ func TestHTTPPluginDispatchWireResult(t *testing.T) {
 	if wr.CheckType != "http" {
 		t.Errorf("CheckType = %q, want %q", wr.CheckType, "http")
 	}
-	if wr.Pass != protocol.DEGRADED {
-		t.Errorf("Pass = %d, want %d", wr.Pass, protocol.DEGRADED)
+	if wr.Pass != core.DEGRADED {
+		t.Errorf("Pass = %d, want %d", wr.Pass, core.DEGRADED)
 	}
 	if wr.FailReason != "slow response" {
 		t.Errorf("FailReason = %q, want %q", wr.FailReason, "slow response")
@@ -146,23 +145,23 @@ func TestHTTPPluginDispatchWireResult(t *testing.T) {
 }
 
 func TestHTTPPluginExtractPoints(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	history := []HTTPCheck{
-		{Pass: protocol.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
-		{Pass: protocol.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
+		{Pass: core.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
+		{Pass: core.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
 	}
 	pts := p.ExtractPoints(history)
 	if len(pts) != 2 {
 		t.Fatalf("ExtractPoints = %d points, want 2", len(pts))
 	}
-	if pts[0].Pass != protocol.PASS {
-		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, protocol.PASS)
+	if pts[0].Pass != core.PASS {
+		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, core.PASS)
 	}
 	if pts[0].Resp != 10.0 {
 		t.Errorf("pts[0].Resp = %f, want %f", pts[0].Resp, 10.0)
 	}
-	if pts[1].Pass != protocol.FAIL {
-		t.Errorf("pts[1].Pass = %d, want %d", pts[1].Pass, protocol.FAIL)
+	if pts[1].Pass != core.FAIL {
+		t.Errorf("pts[1].Pass = %d, want %d", pts[1].Pass, core.FAIL)
 	}
 	if pts[1].Resp != 0.0 {
 		t.Errorf("pts[1].Resp = %f, want 0.0", pts[1].Resp)
@@ -173,7 +172,7 @@ func TestHTTPPluginExtractPoints(t *testing.T) {
 }
 
 func TestHTTPPluginExtractPointsNil(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	pts := p.ExtractPoints(nil)
 	if pts != nil {
 		t.Errorf("ExtractPoints(nil) = %v, want nil", pts)
@@ -181,7 +180,7 @@ func TestHTTPPluginExtractPointsNil(t *testing.T) {
 }
 
 func TestHTTPPluginExtractPointsWrongType(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	// Passing wrong type should return nil.
 	pts := p.ExtractPoints("not a slice")
 	if pts != nil {
@@ -190,7 +189,7 @@ func TestHTTPPluginExtractPointsWrongType(t *testing.T) {
 }
 
 func TestHTTPPluginExtractDurationPoints(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	pts := p.ExtractDurationPoints([]HTTPCheck{})
 	if pts != nil {
 		t.Errorf("ExtractDurationPoints should return nil for HTTP")
@@ -198,11 +197,11 @@ func TestHTTPPluginExtractDurationPoints(t *testing.T) {
 }
 
 func TestHTTPPluginLatestRecent(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	history := []HTTPCheck{
-		{ID: 1, Pass: protocol.FAIL, URL: "https://a.example.com"},
-		{ID: 2, Pass: protocol.PASS, URL: "https://b.example.com"},
-		{ID: 3, Pass: protocol.DEGRADED, URL: "https://c.example.com"},
+		{ID: 1, Pass: core.FAIL, URL: "https://a.example.com"},
+		{ID: 2, Pass: core.PASS, URL: "https://b.example.com"},
+		{ID: 3, Pass: core.DEGRADED, URL: "https://c.example.com"},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -228,9 +227,9 @@ func TestHTTPPluginLatestRecent(t *testing.T) {
 }
 
 func TestHTTPPluginLatestRecentSingle(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	history := []HTTPCheck{
-		{ID: 1, Pass: protocol.PASS, URL: "https://example.com"},
+		{ID: 1, Pass: core.PASS, URL: "https://example.com"},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -248,7 +247,7 @@ func TestHTTPPluginLatestRecentSingle(t *testing.T) {
 }
 
 func TestHTTPPluginLatestRecentEmpty(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	latest, recent, count := p.LatestRecent([]HTTPCheck{}, 15)
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
@@ -256,10 +255,10 @@ func TestHTTPPluginLatestRecentEmpty(t *testing.T) {
 }
 
 func TestHTTPPluginLatestRecentCapped(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	history := make([]HTTPCheck, 10)
 	for i := range history {
-		history[i] = HTTPCheck{ID: int64(i + 1), Pass: protocol.PASS}
+		history[i] = HTTPCheck{ID: int64(i + 1), Pass: core.PASS}
 	}
 	// maxRecent = 3, so only 3 items in recent, not 9.
 	latest, recent, count := p.LatestRecent(history, 3)
@@ -286,7 +285,7 @@ func TestTLSVersionName(t *testing.T) {
 		{tls.VersionTLS11, "TLS 1.1"},
 		{tls.VersionTLS12, "TLS 1.2"},
 		{tls.VersionTLS13, "TLS 1.3"},
-		{0x0304, "TLS 1.3"},  // tls.VersionTLS13 alias
+		{0x0304, "TLS 1.3"}, // tls.VersionTLS13 alias
 		{0x0000, "TLS 0x0000"},
 		{0xffff, "TLS 0xffff"},
 	}
@@ -300,9 +299,9 @@ func TestTLSVersionName(t *testing.T) {
 
 func TestDispatchWireResultCheckResponseMS(t *testing.T) {
 	// Verify the ResponseMS in the WireResult matches CheckResponseMS from the result.
-	p, _ := registry.ByName("http")
-	meta := registry.ResourceMeta{Slug: "x", Name: "x", Desc: ""}
-	cr := &HTTPResult{Pass: protocol.PASS, ResponseTimeMS: 123.456}
+	p, _ := core.ByName("http")
+	meta := core.ResourceMeta{Slug: "x", Name: "x", Desc: ""}
+	cr := &HTTPResult{Pass: core.PASS, ResponseTimeMS: 123.456}
 	wr := p.DispatchWireResult(meta, cr, 100*time.Millisecond)
 	if wr.ResponseMS != 123.456 {
 		t.Errorf("ResponseMS = %f, want %f", wr.ResponseMS, 123.456)
@@ -311,12 +310,12 @@ func TestDispatchWireResultCheckResponseMS(t *testing.T) {
 
 func TestHTTPResultFailReason(t *testing.T) {
 	r := &HTTPResult{
-		Pass:       protocol.FAIL,
+		Pass:       core.FAIL,
 		FailReason: "connection refused",
 		Error:      "dial tcp 127.0.0.1:80: connect: connection refused",
 	}
-	if r.CheckPass() != protocol.FAIL {
-		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), protocol.FAIL)
+	if r.CheckPass() != core.FAIL {
+		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), core.FAIL)
 	}
 	if r.CheckFailReason() != "connection refused" {
 		t.Errorf("CheckFailReason = %q, want %q", r.CheckFailReason(), "connection refused")
@@ -324,10 +323,9 @@ func TestHTTPResultFailReason(t *testing.T) {
 }
 
 func TestInsertInvalidJSON(t *testing.T) {
-	p, _ := registry.ByName("http")
+	p, _ := core.ByName("http")
 	err := p.Insert(nil, "slug", "outpost", 100, []byte(`not json`))
 	if err == nil {
 		t.Error("Insert with invalid JSON should return an error")
 	}
 }
-

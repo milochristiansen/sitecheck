@@ -13,7 +13,7 @@ function check()
         follow_redirects = true,
     })
 
-    if r.Error ~= nil then
+    if r.Error ~= "" then
         r.FailReason = r.Error
         return r
     end

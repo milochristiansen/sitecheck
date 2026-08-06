@@ -1,6 +1,7 @@
-// Package outpost implements registry.CheckPlugin for outpost health checks.
-// OutpostResult is synthesized by the pool in the core binary, not by Lua scripts,
-// so RegisterLua and DispatchWireResult are no-ops.
+// Package outpost implements core.CheckPlugin for outpost health checks.
+// OutpostResult is synthesized by the pool in the core binary, never by a Lua
+// script, so RegisterLua is a no-op and DispatchWireResult only satisfies the
+// CheckPlugin interface (it is not called by production code).
 package outpost
 
 import (
@@ -11,8 +12,7 @@ import (
 
 	"github.com/milochristiansen/lua"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // OutpostResult is the wire deserialization of an outpost health result.
@@ -27,7 +27,7 @@ type OutpostResult struct {
 }
 
 // CheckResult interface.
-func (r *OutpostResult) CheckType() string       { return "outpost" }
+func (r *OutpostResult) CheckType() string        { return "outpost" }
 func (r *OutpostResult) CheckPass() int           { return r.Pass }
 func (r *OutpostResult) CheckFailReason() string  { return r.FailReason }
 func (r *OutpostResult) CheckResponseMS() float64 { return r.ResponseTimeMS }
@@ -124,12 +124,12 @@ func (p *impl) QuerySince(db *sql.DB, slug, outpostSlug string, since time.Time)
 	var checks []OutpostCheck
 	for rows.Next() {
 		var (
-			c               OutpostCheck
-			durationMS      sql.NullInt64
-			responseTimeMS  sql.NullFloat64
-			checkCount      sql.NullInt64
-			failCount       sql.NullInt64
-			errMsg          sql.NullString
+			c              OutpostCheck
+			durationMS     sql.NullInt64
+			responseTimeMS sql.NullFloat64
+			checkCount     sql.NullInt64
+			failCount      sql.NullInt64
+			errMsg         sql.NullString
 		)
 		if err := rows.Scan(&c.ID, &c.Slug, &c.Timestamp, &durationMS, &c.Pass,
 			&responseTimeMS, &checkCount, &failCount, &errMsg,
@@ -148,28 +148,28 @@ func (p *impl) QuerySince(db *sql.DB, slug, outpostSlug string, since time.Time)
 
 // ExtractPoints converts an []OutpostCheck history slice to CheckPoints,
 // using ResponseTimeMS as the response value.
-func (p *impl) ExtractPoints(history interface{}) []registry.CheckPoint {
+func (p *impl) ExtractPoints(history interface{}) []core.CheckPoint {
 	h, ok := history.([]OutpostCheck)
 	if !ok {
 		return nil
 	}
-	pts := make([]registry.CheckPoint, len(h))
+	pts := make([]core.CheckPoint, len(h))
 	for i := range h {
-		pts[i] = registry.CheckPoint{Pass: h[i].Pass, Resp: h[i].ResponseTimeMS, TS: h[i].Timestamp}
+		pts[i] = core.CheckPoint{Pass: h[i].Pass, Resp: h[i].ResponseTimeMS, TS: h[i].Timestamp}
 	}
 	return pts
 }
 
 // ExtractDurationPoints converts an []OutpostCheck history slice to CheckPoints,
 // using DurationMS as the response value.
-func (p *impl) ExtractDurationPoints(history interface{}) []registry.CheckPoint {
+func (p *impl) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 	h, ok := history.([]OutpostCheck)
 	if !ok {
 		return nil
 	}
-	pts := make([]registry.CheckPoint, len(h))
+	pts := make([]core.CheckPoint, len(h))
 	for i := range h {
-		pts[i] = registry.CheckPoint{Pass: h[i].Pass, Resp: float64(h[i].DurationMS), TS: h[i].Timestamp}
+		pts[i] = core.CheckPoint{Pass: h[i].Pass, Resp: float64(h[i].DurationMS), TS: h[i].Timestamp}
 	}
 	return pts
 }
@@ -204,10 +204,10 @@ func (p *impl) LatestRecent(history interface{}, maxRecent int) (latest, recent 
 // RegisterLua is a no-op — OutpostResult is not produced by Lua scripts.
 func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {}
 
-// DispatchWireResult is a no-op — OutpostResult is synthesized by the core,
-// not produced by Lua scripts. Returns an empty WireResult with an error message.
-func (p *impl) DispatchWireResult(res registry.ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult {
-	return protocol.NewWireResult(
+// DispatchWireResult satisfies the CheckPlugin interface; outpost results are
+// synthesized by the core, so this path is never exercised in production.
+func (p *impl) DispatchWireResult(res core.ResourceMeta, cr core.CheckResult, elapsed time.Duration) core.WireResult {
+	return core.NewWireResult(
 		res.Slug, res.Name, res.Desc, "outpost",
 		0, "", 0, elapsed.Milliseconds(),
 		"outpost results are synthesized by the core",
@@ -220,8 +220,6 @@ func (p *impl) TemplateNames() (row, body string) {
 	return "check_outpost_row", "check_outpost_body"
 }
 
-
-
 func init() {
-	registry.Register(&impl{})
+	core.Register(&impl{})
 }

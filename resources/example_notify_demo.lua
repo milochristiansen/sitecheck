@@ -20,7 +20,7 @@ function check()
         follow_redirects = true,
     })
 
-    if r.Error ~= nil then
+    if r.Error ~= "" then
         r.Pass = FAIL
         r.FailReason = r.Error
         return r

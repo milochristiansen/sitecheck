@@ -3,7 +3,10 @@
 // Decision logic for when to notify lives in the sitecheck command.
 package notify
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Message is a notification to be delivered by a Sender.
 type Message struct {
@@ -32,23 +35,5 @@ func (b *Broadcast) Send(msg Message) error {
 			errs = append(errs, fmt.Errorf("%T: %w", s, err))
 		}
 	}
-	if len(errs) == 0 {
-		return nil
-	}
-	// Join errors into one; fmt.Errorf("%w") unwrapping is not needed
-	// for logging — callers just print the error string.
-	return &broadcastError{errs: errs}
-}
-
-// broadcastError aggregates errors from multiple senders.
-type broadcastError struct {
-	errs []error
-}
-
-func (e *broadcastError) Error() string {
-	s := "broadcast errors:"
-	for _, err := range e.errs {
-		s += "\n  - " + err.Error()
-	}
-	return s
+	return errors.Join(errs...)
 }

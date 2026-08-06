@@ -1,4 +1,4 @@
-// Package tcp implements registry.CheckPlugin for TCP connect checks.
+// Package tcp implements core.CheckPlugin for TCP connect checks.
 package tcp
 
 import (
@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"github.com/milochristiansen/lua"
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
-// TCPResult is the result of a TCP connect check. It implements protocol.CheckResult.
+// TCPResult is the result of a TCP connect check. It implements core.CheckResult.
 type TCPResult struct {
 	Pass           int
 	FailReason     string
@@ -25,9 +24,9 @@ type TCPResult struct {
 }
 
 func (r *TCPResult) CheckType() string        { return "tcp" }
-func (r *TCPResult) CheckPass() int            { return r.Pass }
-func (r *TCPResult) CheckFailReason() string   { return r.FailReason }
-func (r *TCPResult) CheckResponseMS() float64  { return r.ResponseTimeMS }
+func (r *TCPResult) CheckPass() int           { return r.Pass }
+func (r *TCPResult) CheckFailReason() string  { return r.FailReason }
+func (r *TCPResult) CheckResponseMS() float64 { return r.ResponseTimeMS }
 
 // TCPCheck is a database row from checks_tcp.
 type TCPCheck struct {
@@ -150,19 +149,19 @@ func (impl) QuerySince(db *sql.DB, slug, outpostSlug string, since time.Time) (i
 	return checks, nil
 }
 
-func (impl) ExtractPoints(history interface{}) []registry.CheckPoint {
+func (impl) ExtractPoints(history interface{}) []core.CheckPoint {
 	h, ok := history.([]TCPCheck)
 	if !ok {
 		return nil
 	}
-	pts := make([]registry.CheckPoint, len(h))
+	pts := make([]core.CheckPoint, len(h))
 	for i, c := range h {
-		pts[i] = registry.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
+		pts[i] = core.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
 	}
 	return pts
 }
 
-func (impl) ExtractDurationPoints(history interface{}) []registry.CheckPoint {
+func (impl) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 	return nil
 }
 
@@ -193,11 +192,11 @@ func (impl) RegisterLua(l *lua.State, defaultTimeout int) {
 
 		timeout := defaultTimeout
 		if !l.IsNil(3) && l.TypeOf(3) == lua.TypTable {
-			timeout = readIntOpt(l, 3, "timeout", defaultTimeout)
+			timeout = core.ReadIntOpt(l, 3, "timeout", defaultTimeout)
 		}
 
 		r := &TCPResult{
-			Pass: protocol.FAIL,
+			Pass: core.FAIL,
 			Host: host,
 			Port: port,
 		}
@@ -206,7 +205,7 @@ func (impl) RegisterLua(l *lua.State, defaultTimeout int) {
 		start := time.Now()
 		conn, err := net.DialTimeout("tcp", addr, time.Duration(timeout)*time.Second)
 		elapsed := time.Since(start)
-		r.ResponseTimeMS = float64(elapsed.Microseconds()) / 1000.0
+		r.ResponseTimeMS = elapsed.Seconds() * 1000
 
 		if err != nil {
 			r.Error = err.Error()
@@ -226,90 +225,20 @@ func (impl) RegisterLua(l *lua.State, defaultTimeout int) {
 }
 
 func pushTCPResult(l *lua.State, r *TCPResult) {
-	l.Push(r)
-	l.NewTable(0, 2)
-
-	l.Push("__index")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*TCPResult)
-		switch l.ToString(2) {
-		case "Pass":
-			l.Push(int64(r.Pass))
-		case "FailReason":
-			pushStr(l, r.FailReason)
-		case "Host":
-			l.Push(r.Host)
-		case "Port":
-			l.Push(int64(r.Port))
-		case "ResponseTimeMS":
-			l.Push(r.ResponseTimeMS)
-		case "RemoteIP":
-			pushStr(l, r.RemoteIP)
-		case "Error":
-			pushStr(l, r.Error)
-		default:
-			l.Push(nil)
-		}
-		return 1
+	core.PushResultUserData(l, r, map[string]core.LuaField{
+		"Pass":           {Get: func(l *lua.State) { l.Push(int64(r.Pass)) }, Set: func(l *lua.State) { r.Pass = int(l.ToInt(3)) }},
+		"FailReason":     {Get: func(l *lua.State) { l.Push(r.FailReason) }, Set: func(l *lua.State) { r.FailReason = l.ToString(3) }},
+		"Host":           {Get: func(l *lua.State) { l.Push(r.Host) }, Set: func(l *lua.State) { r.Host = l.ToString(3) }},
+		"Port":           {Get: func(l *lua.State) { l.Push(int64(r.Port)) }, Set: func(l *lua.State) { r.Port = int(l.ToInt(3)) }},
+		"ResponseTimeMS": {Get: func(l *lua.State) { l.Push(r.ResponseTimeMS) }},
+		"RemoteIP":       {Get: func(l *lua.State) { l.Push(r.RemoteIP) }, Set: func(l *lua.State) { r.RemoteIP = l.ToString(3) }},
+		"Error":          {Get: func(l *lua.State) { l.Push(r.Error) }, Set: func(l *lua.State) { r.Error = l.ToString(3) }},
 	})
-	l.SetTableRaw(-3)
-
-	l.Push("__newindex")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*TCPResult)
-		switch l.ToString(2) {
-		case "Pass":
-			r.Pass = int(l.ToInt(3))
-		case "FailReason":
-			r.FailReason = l.ToString(3)
-		case "Host":
-			r.Host = l.ToString(3)
-		case "Port":
-			r.Port = int(l.ToInt(3))
-		case "RemoteIP":
-			r.RemoteIP = l.ToString(3)
-		case "Error":
-			r.Error = l.ToString(3)
-		}
-		return 0
-	})
-	l.SetTableRaw(-3)
-
-	l.SetMetaTable(-2)
 }
 
-// Lua utility helpers — mirrors of lmods unexported helpers.
-func readIntOpt(l *lua.State, tableIdx int, key string, def int) int {
-	abs := l.AbsIndex(tableIdx)
-	l.Push(key)
-	t := l.GetTableRaw(abs)
-	if t == lua.TypNil {
-		l.Pop(1)
-		return def
-	}
-	switch n := l.GetRaw(-1).(type) {
-	case int64:
-		l.Pop(1)
-		return int(n)
-	case float64:
-		l.Pop(1)
-		return int(n)
-	}
-	l.Pop(1)
-	return def
-}
-
-func pushStr(l *lua.State, s string) {
-	if s == "" {
-		l.Push(nil)
-	} else {
-		l.Push(s)
-	}
-}
-
-func (impl) DispatchWireResult(res registry.ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult {
+func (impl) DispatchWireResult(res core.ResourceMeta, cr core.CheckResult, elapsed time.Duration) core.WireResult {
 	r := cr.(*TCPResult)
-	return protocol.NewWireResult(
+	return core.NewWireResult(
 		res.Slug, res.Name, res.Desc,
 		"tcp",
 		r.Pass, r.FailReason,
@@ -324,8 +253,6 @@ func (impl) TemplateNames() (string, string) {
 	return "check_tcp_row", "check_tcp_body"
 }
 
-
-
 func init() {
-	registry.Register(impl{})
+	core.Register(impl{})
 }

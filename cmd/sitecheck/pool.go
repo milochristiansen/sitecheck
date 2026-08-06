@@ -7,15 +7,15 @@ import (
 	"time"
 
 	"sitecheck/checktypes/outpost"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // PoolResult carries a single result from an outpost, or an error indicating the outpost as a whole failed.
 type PoolResult struct {
 	OutpostSlug string
 	OutpostName string
-	WireResult  *protocol.WireResult // nil when outpost failed
-	Err         error                // non-nil when the outpost client failed
+	WireResult  *core.WireResult // nil when outpost failed
+	Err         error            // non-nil when the outpost client failed
 }
 
 // runOutpostPool fans out across all active outposts concurrently, bounded by cfg.OutpostWorkers. Results are streamed
@@ -65,36 +65,36 @@ func runOutpostPool(outposts []OutpostDef, cfg *Config) <-chan PoolResult {
 				wrCopy := wr
 				ch <- PoolResult{OutpostSlug: o.Slug, OutpostName: o.Name, WireResult: &wrCopy}
 				totalChecks++
-				if wr.Pass != protocol.PASS {
+				if wr.Pass != core.PASS {
 					failCount++
 				}
 			}
 
 			// Emit a synthetic outpost health result.
 			elapsed := time.Since(start)
-			respMS := float64(elapsed.Microseconds()) / 1000.0
+			respMS := elapsed.Seconds() * 1000
 			if !firstResult.IsZero() {
-				respMS = float64(firstResult.Sub(start).Microseconds()) / 1000.0
+				respMS = firstResult.Sub(start).Seconds() * 1000
 			}
 			outpostData, _ := json.Marshal(outpost.OutpostResult{
-				Pass:           protocol.PASS,
+				Pass:           core.PASS,
 				ResponseTimeMS: respMS,
 				CheckCount:     totalChecks,
 				FailCount:      failCount,
 			})
 			ch <- PoolResult{
 				OutpostSlug: o.Slug, OutpostName: o.Name,
-				WireResult: &protocol.WireResult{
+				WireResult: &core.WireResult{
 					Slug:        o.Slug,
 					Name:        o.Name,
 					CheckType:   "outpost",
-					Pass:        protocol.PASS,
+					Pass:        core.PASS,
 					ResponseMS:  respMS,
 					ElapsedMS:   elapsed.Milliseconds(),
 					Data:        outpostData,
 					OutpostSlug: o.Slug,
 					Sites:       o.Sites,
-					Version:     protocol.WireVersion,
+					Version:     core.WireVersion,
 				},
 			}
 		}(o)

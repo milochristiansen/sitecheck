@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"sitecheck/checktypes/registry"
+	"sitecheck/core"
 )
 
 func TestTitleCase(t *testing.T) {
@@ -43,7 +43,7 @@ func TestToRegistryMeta(t *testing.T) {
 			NotifyFail:     true,
 		}
 		got := r.toRegistryMeta()
-		want := registry.ResourceMeta{
+		want := core.ResourceMeta{
 			Slug:           "test-check",
 			Name:           "My Check",
 			Desc:           "A test check description",
@@ -59,7 +59,7 @@ func TestToRegistryMeta(t *testing.T) {
 	t.Run("zero-value Resource produces zero-value ResourceMeta", func(t *testing.T) {
 		r := Resource{}
 		got := r.toRegistryMeta()
-		want := registry.ResourceMeta{}
+		want := core.ResourceMeta{}
 		if got != want {
 			t.Errorf("toRegistryMeta() on zero Resource = %+v, want %+v", got, want)
 		}

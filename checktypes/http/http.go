@@ -1,4 +1,4 @@
-// Package http implements the registry.CheckPlugin interface for HTTP checks.
+// Package http implements the core.CheckPlugin interface for HTTP checks.
 package http
 
 import (
@@ -13,11 +13,10 @@ import (
 	"time"
 
 	"github.com/milochristiansen/lua"
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
-// HTTPResult is the result of a single HTTP check. It implements protocol.CheckResult.
+// HTTPResult is the result of a single HTTP check. It implements core.CheckResult.
 type HTTPResult struct {
 	Pass           int
 	FailReason     string
@@ -56,7 +55,7 @@ type HTTPCheck struct {
 	Error          string
 }
 
-// HTTPPlugin implements registry.CheckPlugin for HTTP checks.
+// HTTPPlugin implements core.CheckPlugin for HTTP checks.
 type HTTPPlugin struct{}
 
 // TypeName returns "http".
@@ -188,21 +187,21 @@ func (p *HTTPPlugin) QuerySince(db *sql.DB, slug, outpostSlug string, since time
 	return checks, rows.Err()
 }
 
-// ExtractPoints converts a []HTTPCheck to []registry.CheckPoint.
-func (p *HTTPPlugin) ExtractPoints(history interface{}) []registry.CheckPoint {
+// ExtractPoints converts a []HTTPCheck to []core.CheckPoint.
+func (p *HTTPPlugin) ExtractPoints(history interface{}) []core.CheckPoint {
 	h, ok := history.([]HTTPCheck)
 	if !ok {
 		return nil
 	}
-	pts := make([]registry.CheckPoint, len(h))
+	pts := make([]core.CheckPoint, len(h))
 	for i, c := range h {
-		pts[i] = registry.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
+		pts[i] = core.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
 	}
 	return pts
 }
 
 // ExtractDurationPoints returns nil — HTTP checks don't have duration charts.
-func (p *HTTPPlugin) ExtractDurationPoints(_ interface{}) []registry.CheckPoint {
+func (p *HTTPPlugin) ExtractDurationPoints(_ interface{}) []core.CheckPoint {
 	return nil
 }
 
@@ -241,17 +240,17 @@ func (p *HTTPPlugin) RegisterLua(l *lua.State, defaultTimeout int) {
 		var body string
 
 		if !l.IsNil(2) && l.TypeOf(2) == lua.TypTable {
-			method = readStringOpt(l, 2, "method", "GET")
-			timeout = readIntOpt(l, 2, "timeout", defaultTimeout)
-			followRedirects = readBoolOpt(l, 2, "follow_redirects", true)
-			maxRedirects = readIntOpt(l, 2, "max_redirects", 10)
-			insecureSkipVerify = readBoolOpt(l, 2, "insecure_skip_verify", false)
-			headers = readStringMapOpt(l, 2, "headers")
-			body = readStringOpt(l, 2, "body", "")
+			method = core.ReadStringOpt(l, 2, "method", "GET")
+			timeout = core.ReadIntOpt(l, 2, "timeout", defaultTimeout)
+			followRedirects = core.ReadBoolOpt(l, 2, "follow_redirects", true)
+			maxRedirects = core.ReadIntOpt(l, 2, "max_redirects", 10)
+			insecureSkipVerify = core.ReadBoolOpt(l, 2, "insecure_skip_verify", false)
+			headers = core.ReadStringMapOpt(l, 2, "headers")
+			body = core.ReadStringOpt(l, 2, "body", "")
 		}
 
 		r := &HTTPResult{
-			Pass: protocol.FAIL,
+			Pass: core.FAIL,
 			URL:  url,
 		}
 
@@ -301,7 +300,7 @@ func (p *HTTPPlugin) RegisterLua(l *lua.State, defaultTimeout int) {
 		start := time.Now()
 		resp, err := client.Do(req)
 		elapsed := time.Since(start)
-		r.ResponseTimeMS = float64(elapsed.Microseconds()) / 1000.0
+		r.ResponseTimeMS = elapsed.Seconds() * 1000
 
 		if err != nil {
 			r.Error = err.Error()
@@ -340,75 +339,19 @@ func (p *HTTPPlugin) RegisterLua(l *lua.State, defaultTimeout int) {
 
 // pushHTTPResult pushes *HTTPResult as userdata with an explicit metatable.
 func pushHTTPResult(l *lua.State, r *HTTPResult) {
-	l.Push(r)
-	l.NewTable(0, 2)
-
-	l.Push("__index")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*HTTPResult)
-		switch l.ToString(2) {
-		case "Pass":
-			l.Push(int64(r.Pass))
-		case "FailReason":
-			pushStr(l, r.FailReason)
-		case "URL":
-			l.Push(r.URL)
-		case "StatusCode":
-			l.Push(int64(r.StatusCode))
-		case "BodySize":
-			l.Push(r.BodySize)
-		case "Body":
-			l.Push(r.Body)
-		case "ResponseTimeMS":
-			l.Push(r.ResponseTimeMS)
-		case "TLSVersion":
-			pushStr(l, r.TLSVersion)
-		case "RemoteIP":
-			pushStr(l, r.RemoteIP)
-		case "RedirectCount":
-			l.Push(int64(r.RedirectCount))
-		case "Error":
-			pushStr(l, r.Error)
-		default:
-			l.Push(nil)
-		}
-		return 1
+	core.PushResultUserData(l, r, map[string]core.LuaField{
+		"Pass":           {Get: func(l *lua.State) { l.Push(int64(r.Pass)) }, Set: func(l *lua.State) { r.Pass = int(l.ToInt(3)) }},
+		"FailReason":     {Get: func(l *lua.State) { l.Push(r.FailReason) }, Set: func(l *lua.State) { r.FailReason = l.ToString(3) }},
+		"URL":            {Get: func(l *lua.State) { l.Push(r.URL) }, Set: func(l *lua.State) { r.URL = l.ToString(3) }},
+		"StatusCode":     {Get: func(l *lua.State) { l.Push(int64(r.StatusCode)) }},
+		"BodySize":       {Get: func(l *lua.State) { l.Push(r.BodySize) }},
+		"Body":           {Get: func(l *lua.State) { l.Push(r.Body) }, Set: func(l *lua.State) { r.Body = l.ToString(3) }},
+		"ResponseTimeMS": {Get: func(l *lua.State) { l.Push(r.ResponseTimeMS) }},
+		"TLSVersion":     {Get: func(l *lua.State) { l.Push(r.TLSVersion) }, Set: func(l *lua.State) { r.TLSVersion = l.ToString(3) }},
+		"RemoteIP":       {Get: func(l *lua.State) { l.Push(r.RemoteIP) }, Set: func(l *lua.State) { r.RemoteIP = l.ToString(3) }},
+		"RedirectCount":  {Get: func(l *lua.State) { l.Push(int64(r.RedirectCount)) }},
+		"Error":          {Get: func(l *lua.State) { l.Push(r.Error) }, Set: func(l *lua.State) { r.Error = l.ToString(3) }},
 	})
-	l.SetTableRaw(-3)
-
-	l.Push("__newindex")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*HTTPResult)
-		switch l.ToString(2) {
-		case "Pass":
-			r.Pass = int(l.ToInt(3))
-		case "FailReason":
-			r.FailReason = l.ToString(3)
-		case "URL":
-			r.URL = l.ToString(3)
-		case "Body":
-			r.Body = l.ToString(3)
-		case "TLSVersion":
-			r.TLSVersion = l.ToString(3)
-		case "RemoteIP":
-			r.RemoteIP = l.ToString(3)
-		case "Error":
-			r.Error = l.ToString(3)
-		}
-		return 0
-	})
-	l.SetTableRaw(-3)
-
-	l.SetMetaTable(-2)
-}
-
-// pushStr pushes s as a Lua string, or nil if s is empty.
-func pushStr(l *lua.State, s string) {
-	if s == "" {
-		l.Push(nil)
-	} else {
-		l.Push(s)
-	}
 }
 
 // tlsVersionName returns a human-readable name for a TLS version constant.
@@ -427,10 +370,10 @@ func tlsVersionName(v uint16) string {
 	}
 }
 
-// DispatchWireResult builds a protocol.WireResult from the check result.
-func (p *HTTPPlugin) DispatchWireResult(res registry.ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult {
+// DispatchWireResult builds a core.WireResult from the check result.
+func (p *HTTPPlugin) DispatchWireResult(res core.ResourceMeta, cr core.CheckResult, elapsed time.Duration) core.WireResult {
 	r := cr.(*HTTPResult)
-	return protocol.NewWireResult(
+	return core.NewWireResult(
 		res.Slug, res.Name, res.Desc,
 		"http", r.Pass, r.FailReason,
 		r.ResponseTimeMS, elapsed.Milliseconds(),
@@ -444,86 +387,6 @@ func (p *HTTPPlugin) TemplateNames() (string, string) {
 	return "check_http_row", "check_http_body"
 }
 
-
-
 func init() {
-	registry.Register(&HTTPPlugin{})
-}
-
-// --- Lua option helpers (ported from lmods/opts.go) ---
-
-func readOptional(l *lua.State, tableIdx int, key string) interface{} {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil {
-		return nil
-	}
-	v := l.GetRaw(-1)
-	l.Pop(1)
-	return v
-}
-
-func readStringOpt(l *lua.State, tableIdx int, key string, def string) string {
-	v := readOptional(l, tableIdx, key)
-	if v == nil {
-		return def
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return def
-}
-
-func readIntOpt(l *lua.State, tableIdx int, key string, def int) int {
-	v := readOptional(l, tableIdx, key)
-	if v == nil {
-		return def
-	}
-	switch n := v.(type) {
-	case int64:
-		return int(n)
-	case float64:
-		return int(n)
-	}
-	return def
-}
-
-func readBoolOpt(l *lua.State, tableIdx int, key string, def bool) bool {
-	v := readOptional(l, tableIdx, key)
-	if v == nil {
-		return def
-	}
-	if b, ok := v.(bool); ok {
-		return b
-	}
-	return def
-}
-
-func readStringMapOpt(l *lua.State, tableIdx int, key string) map[string]string {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil || t != lua.TypTable {
-		l.Pop(1)
-		return nil
-	}
-
-	result := make(map[string]string)
-	subIdx := l.AbsIndex(-1)
-
-	l.ForEachRaw(subIdx, func() bool {
-		k := l.GetRaw(-2)
-		if ks, ok := k.(string); ok {
-			v := l.GetRaw(-1)
-			if vs, ok := v.(string); ok {
-				result[ks] = vs
-			}
-		}
-		return true
-	})
-
-	l.Pop(1)
-	if len(result) == 0 {
-		return nil
-	}
-	return result
+	core.Register(&HTTPPlugin{})
 }

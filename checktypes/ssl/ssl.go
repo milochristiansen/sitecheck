@@ -1,4 +1,4 @@
-// Package ssl implements the registry.CheckPlugin interface for SSL/TLS certificate checks.
+// Package ssl implements the core.CheckPlugin interface for SSL/TLS certificate checks.
 package ssl
 
 import (
@@ -10,8 +10,7 @@ import (
 	"time"
 
 	"github.com/milochristiansen/lua"
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // ---------------------------------------------------------------------------
@@ -33,9 +32,9 @@ type SSLResult struct {
 	Error          string
 }
 
-func (r *SSLResult) CheckType() string       { return "ssl" }
-func (r *SSLResult) CheckPass() int          { return r.Pass }
-func (r *SSLResult) CheckFailReason() string { return r.FailReason }
+func (r *SSLResult) CheckType() string        { return "ssl" }
+func (r *SSLResult) CheckPass() int           { return r.Pass }
+func (r *SSLResult) CheckFailReason() string  { return r.FailReason }
 func (r *SSLResult) CheckResponseMS() float64 { return r.ResponseTimeMS }
 
 // ---------------------------------------------------------------------------
@@ -150,17 +149,17 @@ func (p *impl) QuerySince(db *sql.DB, slug, outpostSlug string, since time.Time)
 	var checks []SSLCheck
 	for rows.Next() {
 		var (
-			c            SSLCheck
-			durationMS   sql.NullInt64
-			responseMS   sql.NullFloat64
-			host         sql.NullString
-			port         sql.NullInt64
-			issuer       sql.NullString
-			subject      sql.NullString
-			notBefore    sql.NullString
-			notAfter     sql.NullString
+			c             SSLCheck
+			durationMS    sql.NullInt64
+			responseMS    sql.NullFloat64
+			host          sql.NullString
+			port          sql.NullInt64
+			issuer        sql.NullString
+			subject       sql.NullString
+			notBefore     sql.NullString
+			notAfter      sql.NullString
 			daysRemaining sql.NullInt64
-			errMsg       sql.NullString
+			errMsg        sql.NullString
 		)
 		err := rows.Scan(&c.ID, &c.Slug, &c.Timestamp, &durationMS, &c.Pass,
 			&responseMS, &host, &port, &issuer, &subject,
@@ -185,20 +184,20 @@ func (p *impl) QuerySince(db *sql.DB, slug, outpostSlug string, since time.Time)
 }
 
 // ExtractPoints converts a []SSLCheck to []CheckPoint for sparklines and charts.
-func (p *impl) ExtractPoints(history interface{}) []registry.CheckPoint {
+func (p *impl) ExtractPoints(history interface{}) []core.CheckPoint {
 	h, ok := history.([]SSLCheck)
 	if !ok {
 		return nil
 	}
-	pts := make([]registry.CheckPoint, len(h))
+	pts := make([]core.CheckPoint, len(h))
 	for i, c := range h {
-		pts[i] = registry.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
+		pts[i] = core.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
 	}
 	return pts
 }
 
 // ExtractDurationPoints returns nil — SSL checks don't have meaningful duration data.
-func (p *impl) ExtractDurationPoints(history interface{}) []registry.CheckPoint {
+func (p *impl) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 	return nil
 }
 
@@ -221,43 +220,6 @@ func (p *impl) LatestRecent(history interface{}, maxRecent int) (latest, recent 
 	return latest, rev, n
 }
 
-// readIntOpt reads an optional integer from a Lua table.
-func readIntOpt(l *lua.State, tableIdx int, key string, def int) int {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil {
-		l.Pop(1)
-		return def
-	}
-	v := l.GetRaw(-1)
-	l.Pop(1)
-	switch n := v.(type) {
-	case int64:
-		return int(n)
-	case float64:
-		return int(n)
-	}
-	return def
-}
-
-// readBoolOpt reads an optional boolean from a Lua table.
-func readBoolOpt(l *lua.State, tableIdx int, key string, def bool) bool {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil {
-		l.Pop(1)
-		return def
-	}
-	if l.TypeOf(-1) == lua.TypBool {
-		b := l.ToBool(-1)
-		l.Pop(1)
-		return b
-	}
-	l.Pop(1)
-	return def
-}
-
-
 // ---------------------------------------------------------------------------
 // Lua registration
 // ---------------------------------------------------------------------------
@@ -274,12 +236,12 @@ func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {
 		timeout := defaultTimeout
 		insecureSkipVerify := false
 		if !l.IsNil(3) && l.TypeOf(3) == lua.TypTable {
-			timeout = readIntOpt(l, 3, "timeout", defaultTimeout)
-			insecureSkipVerify = readBoolOpt(l, 3, "insecure_skip_verify", false)
+			timeout = core.ReadIntOpt(l, 3, "timeout", defaultTimeout)
+			insecureSkipVerify = core.ReadBoolOpt(l, 3, "insecure_skip_verify", false)
 		}
 
 		r := &SSLResult{
-			Pass: protocol.FAIL,
+			Pass: core.FAIL,
 			Host: host,
 			Port: port,
 		}
@@ -292,7 +254,7 @@ func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {
 			InsecureSkipVerify: insecureSkipVerify,
 		})
 		elapsed := time.Since(start)
-		r.ResponseTimeMS = float64(elapsed.Microseconds()) / 1000.0
+		r.ResponseTimeMS = elapsed.Seconds() * 1000
 
 		if err != nil {
 			r.Error = err.Error()
@@ -322,79 +284,19 @@ func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {
 }
 
 func pushSSLResult(l *lua.State, r *SSLResult) {
-	l.Push(r)
-	l.NewTable(0, 2)
-
-	l.Push("__index")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*SSLResult)
-		switch l.ToString(2) {
-		case "Pass":
-			l.Push(int64(r.Pass))
-		case "FailReason":
-			pushStr(l, r.FailReason)
-		case "Host":
-			l.Push(r.Host)
-		case "Port":
-			l.Push(int64(r.Port))
-		case "Issuer":
-			pushStr(l, r.Issuer)
-		case "Subject":
-			pushStr(l, r.Subject)
-		case "NotBefore":
-			pushStr(l, r.NotBefore)
-		case "NotAfter":
-			pushStr(l, r.NotAfter)
-		case "DaysRemaining":
-			l.Push(int64(r.DaysRemaining))
-		case "ResponseTimeMS":
-			l.Push(r.ResponseTimeMS)
-		case "Error":
-			pushStr(l, r.Error)
-		default:
-			l.Push(nil)
-		}
-		return 1
+	core.PushResultUserData(l, r, map[string]core.LuaField{
+		"Pass":           {Get: func(l *lua.State) { l.Push(int64(r.Pass)) }, Set: func(l *lua.State) { r.Pass = int(l.ToInt(3)) }},
+		"FailReason":     {Get: func(l *lua.State) { l.Push(r.FailReason) }, Set: func(l *lua.State) { r.FailReason = l.ToString(3) }},
+		"Host":           {Get: func(l *lua.State) { l.Push(r.Host) }, Set: func(l *lua.State) { r.Host = l.ToString(3) }},
+		"Port":           {Get: func(l *lua.State) { l.Push(int64(r.Port)) }, Set: func(l *lua.State) { r.Port = int(l.ToInt(3)) }},
+		"Issuer":         {Get: func(l *lua.State) { l.Push(r.Issuer) }, Set: func(l *lua.State) { r.Issuer = l.ToString(3) }},
+		"Subject":        {Get: func(l *lua.State) { l.Push(r.Subject) }, Set: func(l *lua.State) { r.Subject = l.ToString(3) }},
+		"NotBefore":      {Get: func(l *lua.State) { l.Push(r.NotBefore) }, Set: func(l *lua.State) { r.NotBefore = l.ToString(3) }},
+		"NotAfter":       {Get: func(l *lua.State) { l.Push(r.NotAfter) }, Set: func(l *lua.State) { r.NotAfter = l.ToString(3) }},
+		"DaysRemaining":  {Get: func(l *lua.State) { l.Push(int64(r.DaysRemaining)) }},
+		"ResponseTimeMS": {Get: func(l *lua.State) { l.Push(r.ResponseTimeMS) }},
+		"Error":          {Get: func(l *lua.State) { l.Push(r.Error) }, Set: func(l *lua.State) { r.Error = l.ToString(3) }},
 	})
-	l.SetTableRaw(-3)
-
-	l.Push("__newindex")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*SSLResult)
-		switch l.ToString(2) {
-		case "Pass":
-			r.Pass = int(l.ToInt(3))
-		case "FailReason":
-			r.FailReason = l.ToString(3)
-		case "Host":
-			r.Host = l.ToString(3)
-		case "Port":
-			r.Port = int(l.ToInt(3))
-		case "Issuer":
-			r.Issuer = l.ToString(3)
-		case "Subject":
-			r.Subject = l.ToString(3)
-		case "NotBefore":
-			r.NotBefore = l.ToString(3)
-		case "NotAfter":
-			r.NotAfter = l.ToString(3)
-		case "Error":
-			r.Error = l.ToString(3)
-		}
-		return 0
-	})
-	l.SetTableRaw(-3)
-
-	l.SetMetaTable(-2)
-}
-
-// pushStr pushes a string to Lua, mapping empty string to nil.
-func pushStr(l *lua.State, s string) {
-	if s == "" {
-		l.Push(nil)
-	} else {
-		l.Push(s)
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -402,10 +304,10 @@ func pushStr(l *lua.State, s string) {
 // ---------------------------------------------------------------------------
 
 // DispatchWireResult converts the CheckResult returned by a Lua check() call
-// into a protocol.WireResult.
-func (p *impl) DispatchWireResult(res registry.ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult {
+// into a core.WireResult.
+func (p *impl) DispatchWireResult(res core.ResourceMeta, cr core.CheckResult, elapsed time.Duration) core.WireResult {
 	r := cr.(*SSLResult)
-	return protocol.NewWireResult(
+	return core.NewWireResult(
 		res.Slug, res.Name, res.Desc,
 		"ssl", r.Pass, r.FailReason,
 		r.ResponseTimeMS, elapsed.Milliseconds(),
@@ -423,12 +325,10 @@ func (p *impl) TemplateNames() (row, body string) {
 	return "check_ssl_row", "check_ssl_body"
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
 func init() {
-	registry.Register(&impl{})
+	core.Register(&impl{})
 }

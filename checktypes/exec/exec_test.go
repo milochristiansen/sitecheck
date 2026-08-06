@@ -7,8 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // --- Result interface ---------------------------------------------------------
@@ -89,7 +88,7 @@ func TestExecPluginCreateIndexDDL(t *testing.T) {
 
 func TestExecPluginDispatchWireResult(t *testing.T) {
 	p := &plugin{}
-	res := registry.ResourceMeta{
+	res := core.ResourceMeta{
 		Slug:           "my-slug",
 		Name:           "My Check",
 		Desc:           "Does stuff",
@@ -98,7 +97,7 @@ func TestExecPluginDispatchWireResult(t *testing.T) {
 		NotifyFail:     true,
 	}
 	cr := &ExecResult{
-		Pass:           protocol.PASS,
+		Pass:           core.PASS,
 		FailReason:     "",
 		ResponseTimeMS: 100.0,
 		Command:        "/bin/true",
@@ -122,8 +121,8 @@ func TestExecPluginDispatchWireResult(t *testing.T) {
 	if wr.CheckType != "exec" {
 		t.Errorf("wr.CheckType = %q, want %q", wr.CheckType, "exec")
 	}
-	if wr.Pass != protocol.PASS {
-		t.Errorf("wr.Pass = %d, want %d", wr.Pass, protocol.PASS)
+	if wr.Pass != core.PASS {
+		t.Errorf("wr.Pass = %d, want %d", wr.Pass, core.PASS)
 	}
 	if wr.ResponseMS != 100.0 {
 		t.Errorf("wr.ResponseMS = %v, want %v", wr.ResponseMS, 100.0)
@@ -159,21 +158,21 @@ func TestExecPluginDispatchWireResult(t *testing.T) {
 func TestExecPluginExtractPoints(t *testing.T) {
 	p := &plugin{}
 	h := []ExecCheck{
-		{Pass: protocol.PASS, ResponseTimeMS: 10.0, Timestamp: "2025-01-01 00:00:00.000"},
-		{Pass: protocol.FAIL, ResponseTimeMS: 20.0, Timestamp: "2025-01-01 00:01:00.000"},
-		{Pass: protocol.DEGRADED, ResponseTimeMS: 30.0, Timestamp: "2025-01-01 00:02:00.000"},
+		{Pass: core.PASS, ResponseTimeMS: 10.0, Timestamp: "2025-01-01 00:00:00.000"},
+		{Pass: core.FAIL, ResponseTimeMS: 20.0, Timestamp: "2025-01-01 00:01:00.000"},
+		{Pass: core.DEGRADED, ResponseTimeMS: 30.0, Timestamp: "2025-01-01 00:02:00.000"},
 	}
 	pts := p.ExtractPoints(h)
 	if len(pts) != 3 {
 		t.Fatalf("ExtractPoints returned %d points, want 3", len(pts))
 	}
-	if pts[0].Pass != protocol.PASS || pts[0].Resp != 10.0 || pts[0].TS != "2025-01-01 00:00:00.000" {
+	if pts[0].Pass != core.PASS || pts[0].Resp != 10.0 || pts[0].TS != "2025-01-01 00:00:00.000" {
 		t.Errorf("pts[0] = %+v, want {Pass:2 Resp:10 TS:2025-01-01 00:00:00.000}", pts[0])
 	}
-	if pts[1].Pass != protocol.FAIL || pts[1].Resp != 20.0 {
+	if pts[1].Pass != core.FAIL || pts[1].Resp != 20.0 {
 		t.Errorf("pts[1] = %+v", pts[1])
 	}
-	if pts[2].Pass != protocol.DEGRADED || pts[2].Resp != 30.0 {
+	if pts[2].Pass != core.DEGRADED || pts[2].Resp != 30.0 {
 		t.Errorf("pts[2] = %+v", pts[2])
 	}
 }
@@ -229,15 +228,15 @@ func TestExecPluginLatestRecentInvalidType(t *testing.T) {
 func TestExecPluginLatestRecentSingle(t *testing.T) {
 	p := &plugin{}
 	h := []ExecCheck{
-		{Pass: protocol.PASS, ResponseTimeMS: 10.0, Timestamp: "2025-01-01 00:00:00.000"},
+		{Pass: core.PASS, ResponseTimeMS: 10.0, Timestamp: "2025-01-01 00:00:00.000"},
 	}
 	latest, recent, count := p.LatestRecent(h, 5)
 	if latest == nil {
 		t.Fatal("latest is nil, want non-nil")
 	}
 	l := latest.(*ExecCheck)
-	if l.Pass != protocol.PASS {
-		t.Errorf("latest.Pass = %d, want %d", l.Pass, protocol.PASS)
+	if l.Pass != core.PASS {
+		t.Errorf("latest.Pass = %d, want %d", l.Pass, core.PASS)
 	}
 	if recent != nil {
 		t.Errorf("recent = %v, want nil", recent)
@@ -250,17 +249,17 @@ func TestExecPluginLatestRecentSingle(t *testing.T) {
 func TestExecPluginLatestRecentMulti(t *testing.T) {
 	p := &plugin{}
 	h := []ExecCheck{
-		{Pass: protocol.FAIL, ResponseTimeMS: 1.0, Timestamp: "2025-01-01 00:00:00.000"},
-		{Pass: protocol.DEGRADED, ResponseTimeMS: 2.0, Timestamp: "2025-01-01 00:01:00.000"},
-		{Pass: protocol.PASS, ResponseTimeMS: 3.0, Timestamp: "2025-01-01 00:02:00.000"},
+		{Pass: core.FAIL, ResponseTimeMS: 1.0, Timestamp: "2025-01-01 00:00:00.000"},
+		{Pass: core.DEGRADED, ResponseTimeMS: 2.0, Timestamp: "2025-01-01 00:01:00.000"},
+		{Pass: core.PASS, ResponseTimeMS: 3.0, Timestamp: "2025-01-01 00:02:00.000"},
 	}
 	latest, recent, count := p.LatestRecent(h, 2)
 	if latest == nil {
 		t.Fatal("latest is nil, want non-nil")
 	}
 	l := latest.(*ExecCheck)
-	if l.Pass != protocol.PASS {
-		t.Errorf("latest.Pass = %d, want %d", l.Pass, protocol.PASS)
+	if l.Pass != core.PASS {
+		t.Errorf("latest.Pass = %d, want %d", l.Pass, core.PASS)
 	}
 	if recent == nil {
 		t.Fatal("recent is nil, want slice")
@@ -273,11 +272,11 @@ func TestExecPluginLatestRecentMulti(t *testing.T) {
 		t.Fatalf("len(recent) = %d, want 2", len(rec))
 	}
 	// rec[0] should be the second-last (index 1), rec[1] should be the first (index 0)
-	if rec[0].Pass != protocol.DEGRADED {
-		t.Errorf("rec[0].Pass = %d, want %d", rec[0].Pass, protocol.DEGRADED)
+	if rec[0].Pass != core.DEGRADED {
+		t.Errorf("rec[0].Pass = %d, want %d", rec[0].Pass, core.DEGRADED)
 	}
-	if rec[1].Pass != protocol.FAIL {
-		t.Errorf("rec[1].Pass = %d, want %d", rec[1].Pass, protocol.FAIL)
+	if rec[1].Pass != core.FAIL {
+		t.Errorf("rec[1].Pass = %d, want %d", rec[1].Pass, core.FAIL)
 	}
 }
 

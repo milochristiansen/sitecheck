@@ -9,10 +9,9 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"sitecheck/checktypes/registry"
 	"sitecheck/cmd/sitecheck/db"
+	"sitecheck/core"
 	"sitecheck/notify"
-	"sitecheck/protocol"
 
 	_ "sitecheck/checktypes/dns"
 	_ "sitecheck/checktypes/exec"
@@ -23,10 +22,6 @@ import (
 	_ "sitecheck/checktypes/systemd"
 	_ "sitecheck/checktypes/tcp"
 )
-
-// UNKNOWN is the pass value injected by the core when an outpost is unreachable. It is never returned by a resource
-// script and is not exported to lmods.
-const UNKNOWN = -1
 
 func main() {
 	// Load .env from working directory; not fatal if missing.
@@ -99,150 +94,10 @@ func main() {
 
 	for pr := range runOutpostPool(allOutposts, cfg) {
 		if pr.Err != nil {
-			// Outpost failed as a whole.
-			fmt.Fprintf(os.Stderr, "Outpost %q failed: %v\n", pr.OutpostSlug, pr.Err)
-
-			// Notify on up→down transition only.
-			outpost := findOutpost(allOutposts, pr.OutpostSlug)
-			if outpost != nil && outpost.NotifyDown {
-				prevPass, hasPrev, _ := database.LastPass(outpost.Slug, outpost.Slug, "outpost")
-				if hasPrev && prevPass == protocol.PASS {
-					title := fmt.Sprintf("SiteCheck: Outpost %s DOWN", outpost.Name)
-					msg := fmt.Sprintf("Outpost %s is unreachable: %v", outpost.Name, pr.Err)
-					sender.Send(notify.Message{Title: title, Body: msg})
-				}
-			}
-
-			// Insert UNKNOWN rows for resources with prior history from this outpost.
-			slugTypes, dbErr := database.DistinctSlugsByOutpost(pr.OutpostSlug)
-			if dbErr != nil {
-				fmt.Fprintf(os.Stderr, "  distinct slugs error: %v\n", dbErr)
-				continue
-			}
-			if len(slugTypes) == 0 {
-				fmt.Fprintf(os.Stderr, "  No prior history for outpost %q — skipping UNKNOWN rows.\n", pr.OutpostSlug)
-				continue
-			}
-			for _, st := range slugTypes {
-				pass := UNKNOWN
-				label := "UNKNOWN"
-				if st.Type == "outpost" {
-					pass = protocol.FAIL
-					label = "FAIL"
-				}
-				wr := unknownWireResult(st.Slug, st.Type, pr.OutpostSlug, pass, pr.Err)
-				if err := insertWireResult(database, wr); err != nil {
-					fmt.Fprintf(os.Stderr, "  %-20s DB ERROR (unknown): %v\n", st.Slug, err)
-				} else {
-					fmt.Printf("  %-20s %s outpost down\n", st.Slug, label)
-					errMsg := wr.Error
-					if st.Type != "outpost" && outpost != nil {
-						errMsg = fmt.Sprintf("Outpost %s is down", outpost.Name)
-					}
-					// Resources keep their persisted site membership (shown as unknown); the
-					// outpost's own result gets the levels from its definition file.
-					var sites map[string]string
-					if st.Type == "outpost" {
-						if outpost != nil {
-							sites = outpost.Sites
-						}
-					} else if m, ok := database.ResourceMeta(st.Slug, pr.OutpostSlug); ok {
-						sites = m
-					}
-					siteResults = append(siteResults, SiteResult{
-						Slug:        st.Slug,
-						Name:        st.Slug,
-						CheckType:   st.Type,
-						Pass:        pass,
-						Err:         errMsg,
-						OutpostSlug: pr.OutpostSlug,
-						OutpostName: pr.OutpostName,
-						Sites:       sites,
-					})
-				}
-			}
+			siteResults = append(siteResults, handleOutpostDown(database, sender, allOutposts, pr)...)
 			continue
 		}
-
-		// Normal result from a working outpost.
-		wr := pr.WireResult
-		compositeSlug := wr.OutpostSlug + "-" + wr.Slug
-
-		// Wire format version check: an absent field means the old format (version 1, known).
-		// An unrecognized version is still parsed best-effort — 1.1 is backwards compatible by
-		// construction — so we only warn, once per distinct version value.
-		if !protocol.IsKnownWireVersion(wr.Version) {
-			if !seenVersions[wr.Version] {
-				seenVersions[wr.Version] = true
-				fmt.Fprintf(os.Stderr, "Warning: unrecognized wire format version %q from outpost %q — parsing best-effort\n",
-					wr.Version, pr.OutpostSlug)
-			}
-		}
-
-		// Resolve sentinel check type from DB history.
-		if wr.CheckType == protocol.CheckTypeLuaError {
-			wr.Pass = UNKNOWN
-			if typ, ok := database.LookupCheckType(wr.Slug, wr.OutpostSlug); ok {
-				wr.CheckType = typ
-			} else {
-				wr.CheckType = "http"
-			}
-		}
-
-		// Persist site membership for real resource results (not outposts — their levels come
-		// from the definition file each run). This survives the downed-outpost case, where no
-		// fresh meta() data arrives and the core must synthesize results from the DB.
-		if wr.CheckType != "outpost" {
-			if err := database.UpsertResourceMeta(wr.Slug, wr.OutpostSlug, wr.Sites); err != nil {
-				fmt.Fprintf(os.Stderr, "  %-20s DB ERROR (meta): %v\n", compositeSlug, err)
-			}
-		}
-
-		prevPass, hasPrev, _ := database.LastPass(wr.Slug, wr.OutpostSlug, wr.CheckType)
-
-		currentPass := wr.Pass
-		if wr.Error != "" && currentPass != UNKNOWN {
-			currentPass = protocol.FAIL
-		}
-
-		if err := insertWireResult(database, *wr); err != nil {
-			fmt.Fprintf(os.Stderr, "  %-20s DB ERROR: %v\n", compositeSlug, err)
-		} else {
-			fmt.Printf("  %-20s type=%-6s %s %s\n",
-				compositeSlug, wr.CheckType, passName(currentPass),
-				time.Duration(wr.ElapsedMS)*time.Millisecond)
-			if wr.CheckType != "outpost" {
-				reason := wr.FailReason
-				if reason == "" {
-					reason = wr.Error
-				}
-				notifyStatusChange(sender, compositeSlug, wr.Name, reason,
-					currentPass, prevPass, hasPrev,
-					wr.NotifyPass, wr.NotifyDegraded, wr.NotifyFail)
-			} else {
-				// Outpost health check: notify on down→up transition.
-				outpost := findOutpost(allOutposts, pr.OutpostSlug)
-				if outpost != nil && outpost.NotifyDown && hasPrev && prevPass == protocol.FAIL {
-					title := fmt.Sprintf("SiteCheck: Outpost %s UP", outpost.Name)
-					msg := fmt.Sprintf("Outpost %s is reachable again", outpost.Name)
-					sender.Send(notify.Message{Title: title, Body: msg})
-				}
-			}
-		}
-
-		siteResults = append(siteResults, SiteResult{
-			Slug:        wr.Slug,
-			Name:        wr.Name,
-			Desc:        wr.Desc,
-			CheckType:   wr.CheckType,
-			Pass:        currentPass,
-			FailReason:  wr.FailReason,
-			ResponseMS:  wr.ResponseMS,
-			Err:         wr.Error,
-			OutpostSlug: wr.OutpostSlug,
-			OutpostName: pr.OutpostName,
-			Sites:       wr.Sites,
-		})
+		siteResults = append(siteResults, handleWireResult(database, sender, allOutposts, pr, seenVersions))
 	}
 
 	// Query history for the charts: the 30-day chart needs 30 days of data; retention
@@ -276,9 +131,171 @@ func main() {
 	fmt.Println("Done.")
 }
 
+// handleOutpostDown processes a failed outpost: notifies on the up→down
+// transition, synthesizes UNKNOWN (or FAIL for the outpost itself) results
+// from prior DB history, and returns them for display.
+func handleOutpostDown(database *db.DB, sender notify.Sender, outposts []OutpostDef, pr PoolResult) []SiteResult {
+	fmt.Fprintf(os.Stderr, "Outpost %q failed: %v\n", pr.OutpostSlug, pr.Err)
+
+	// Notify on up→down transition only.
+	outpost := findOutpost(outposts, pr.OutpostSlug)
+	if outpost != nil && outpost.NotifyDown {
+		prevPass, hasPrev, _ := database.LastPass(outpost.Slug, outpost.Slug, "outpost")
+		if hasPrev && prevPass == core.PASS {
+			title := fmt.Sprintf("SiteCheck: Outpost %s DOWN", outpost.Name)
+			msg := fmt.Sprintf("Outpost %s is unreachable: %v", outpost.Name, pr.Err)
+			sender.Send(notify.Message{Title: title, Body: msg})
+		}
+	}
+
+	// Insert UNKNOWN rows for resources with prior history from this outpost.
+	slugTypes, dbErr := database.DistinctSlugsByOutpost(pr.OutpostSlug)
+	if dbErr != nil {
+		fmt.Fprintf(os.Stderr, "  distinct slugs error: %v\n", dbErr)
+		return nil
+	}
+	if len(slugTypes) == 0 {
+		fmt.Fprintf(os.Stderr, "  No prior history for outpost %q — skipping UNKNOWN rows.\n", pr.OutpostSlug)
+		return nil
+	}
+
+	var results []SiteResult
+	for _, st := range slugTypes {
+		pass := core.UNKNOWN
+		label := "UNKNOWN"
+		if st.Type == "outpost" {
+			pass = core.FAIL
+			label = "FAIL"
+		}
+		wr := unknownWireResult(st.Slug, st.Type, pr.OutpostSlug, pass, pr.Err)
+		if err := insertWireResult(database, wr); err != nil {
+			fmt.Fprintf(os.Stderr, "  %-20s DB ERROR (unknown): %v\n", st.Slug, err)
+			continue
+		}
+		fmt.Printf("  %-20s %s outpost down\n", st.Slug, label)
+		errMsg := wr.Error
+		if st.Type != "outpost" && outpost != nil {
+			errMsg = fmt.Sprintf("Outpost %s is down", outpost.Name)
+		}
+		// Resources keep their persisted site membership (shown as unknown); the
+		// outpost's own result gets the levels from its definition file.
+		var sites map[string]string
+		if st.Type == "outpost" {
+			if outpost != nil {
+				sites = outpost.Sites
+			}
+		} else if m, ok := database.ResourceMeta(st.Slug, pr.OutpostSlug); ok {
+			sites = m
+		}
+		results = append(results, SiteResult{
+			Slug:        st.Slug,
+			Name:        st.Slug,
+			CheckType:   st.Type,
+			Pass:        pass,
+			Err:         errMsg,
+			OutpostSlug: pr.OutpostSlug,
+			OutpostName: pr.OutpostName,
+			Sites:       sites,
+		})
+	}
+	return results
+}
+
+// handleWireResult processes one result from a live outpost: resolves the
+// sentinel check type, persists site membership, inserts the row, notifies on
+// status changes, and returns the SiteResult for display.
+func handleWireResult(database *db.DB, sender notify.Sender, outposts []OutpostDef, pr PoolResult, seenVersions map[string]bool) SiteResult {
+	wr := pr.WireResult
+	compositeSlug := wr.OutpostSlug + "-" + wr.Slug
+
+	// Wire format version check: an absent field means the old format (version 1, known).
+	// An unrecognized version is still parsed best-effort — 1.1 is backwards compatible by
+	// construction — so we only warn, once per distinct version value.
+	if !core.IsKnownWireVersion(wr.Version) {
+		if !seenVersions[wr.Version] {
+			seenVersions[wr.Version] = true
+			fmt.Fprintf(os.Stderr, "Warning: unrecognized wire format version %q from outpost %q — parsing best-effort\n",
+				wr.Version, pr.OutpostSlug)
+		}
+	}
+
+	// Resolve sentinel check type from DB history.
+	if wr.CheckType == core.CheckTypeLuaError {
+		wr.Pass = core.UNKNOWN
+		if typ, ok := database.LookupCheckType(wr.Slug, wr.OutpostSlug); ok {
+			wr.CheckType = typ
+		} else {
+			wr.CheckType = "http"
+		}
+	}
+
+	// Persist site membership for real resource results (not outposts — their levels come
+	// from the definition file each run). This survives the downed-outpost case, where no
+	// fresh meta() data arrives and the core must synthesize results from the DB.
+	if wr.CheckType != "outpost" {
+		if err := database.UpsertResourceMeta(wr.Slug, wr.OutpostSlug, wr.Sites); err != nil {
+			fmt.Fprintf(os.Stderr, "  %-20s DB ERROR (meta): %v\n", compositeSlug, err)
+		}
+	}
+
+	prevPass, hasPrev, _ := database.LastPass(wr.Slug, wr.OutpostSlug, wr.CheckType)
+
+	currentPass := wr.Pass
+	if wr.Error != "" && currentPass != core.UNKNOWN {
+		currentPass = core.FAIL
+	}
+
+	if err := insertWireResult(database, *wr); err != nil {
+		fmt.Fprintf(os.Stderr, "  %-20s DB ERROR: %v\n", compositeSlug, err)
+	} else {
+		fmt.Printf("  %-20s type=%-6s %s %s\n",
+			compositeSlug, wr.CheckType, passName(currentPass),
+			time.Duration(wr.ElapsedMS)*time.Millisecond)
+		if wr.CheckType != "outpost" {
+			reason := wr.FailReason
+			if reason == "" {
+				reason = wr.Error
+			}
+			notifyStatusChange(sender, statusChange{
+				Slug:           compositeSlug,
+				Name:           wr.Name,
+				FailReason:     reason,
+				CurrentPass:    currentPass,
+				PrevPass:       prevPass,
+				HasPrev:        hasPrev,
+				NotifyPass:     wr.NotifyPass,
+				NotifyDegraded: wr.NotifyDegraded,
+				NotifyFail:     wr.NotifyFail,
+			})
+		} else {
+			// Outpost health check: notify on down→up transition.
+			outpost := findOutpost(outposts, pr.OutpostSlug)
+			if outpost != nil && outpost.NotifyDown && hasPrev && prevPass == core.FAIL {
+				title := fmt.Sprintf("SiteCheck: Outpost %s UP", outpost.Name)
+				msg := fmt.Sprintf("Outpost %s is reachable again", outpost.Name)
+				sender.Send(notify.Message{Title: title, Body: msg})
+			}
+		}
+	}
+
+	return SiteResult{
+		Slug:        wr.Slug,
+		Name:        wr.Name,
+		Desc:        wr.Desc,
+		CheckType:   wr.CheckType,
+		Pass:        currentPass,
+		FailReason:  wr.FailReason,
+		ResponseMS:  wr.ResponseMS,
+		Err:         wr.Error,
+		OutpostSlug: wr.OutpostSlug,
+		OutpostName: pr.OutpostName,
+		Sites:       wr.Sites,
+	}
+}
+
 // queryTypedHistory returns the full typed DB check history for a slug+type.
 func queryTypedHistory(database *db.DB, slug, outpostSlug, checkType string, since time.Time) interface{} {
-	p, ok := registry.ByName(checkType)
+	p, ok := core.ByName(checkType)
 	if !ok {
 		return nil
 	}
@@ -292,11 +309,11 @@ func queryTypedHistory(database *db.DB, slug, outpostSlug, checkType string, sin
 
 // insertWireResult deserializes the typed Data from a WireResult and inserts it into the appropriate DB check table.
 // wr.OutpostSlug must be set by the caller.
-func insertWireResult(database *db.DB, wr protocol.WireResult) error {
+func insertWireResult(database *db.DB, wr core.WireResult) error {
 	if wr.Error != "" {
 		return insertErrorResult(database, wr)
 	}
-	p, ok := registry.ByName(wr.CheckType)
+	p, ok := core.ByName(wr.CheckType)
 	if !ok {
 		return fmt.Errorf("unknown check type %q", wr.CheckType)
 	}
@@ -304,8 +321,8 @@ func insertWireResult(database *db.DB, wr protocol.WireResult) error {
 }
 
 // insertErrorResult inserts a minimal row for a check that produced an error without typed data.
-func insertErrorResult(database *db.DB, wr protocol.WireResult) error {
-	p, ok := registry.ByName(wr.CheckType)
+func insertErrorResult(database *db.DB, wr core.WireResult) error {
+	p, ok := core.ByName(wr.CheckType)
 	if !ok {
 		return fmt.Errorf("unknown check type %q for error insert", wr.CheckType)
 	}
@@ -338,14 +355,14 @@ func findOutpost(outposts []OutpostDef, slug string) *OutpostDef {
 
 // unknownWireResult creates a synthetic WireResult representing an outpost-down state. It has no typed data — only the
 // error field is populated.
-func unknownWireResult(slug, checkType, outpostSlug string, pass int, err error) protocol.WireResult {
-	return protocol.WireResult{
+func unknownWireResult(slug, checkType, outpostSlug string, pass int, err error) core.WireResult {
+	return core.WireResult{
 		Slug:        slug,
 		Name:        slug,
 		CheckType:   checkType,
 		OutpostSlug: outpostSlug,
 		Pass:        pass,
 		Error:       fmt.Sprintf("outpost unreachable: %v", err),
-		Version:     protocol.WireVersion,
+		Version:     core.WireVersion,
 	}
 }

@@ -13,7 +13,7 @@ function check()
     })
 
     -- No server on 19978 — the error field will be populated.
-    if r.Error ~= nil and r.Error ~= "" then
+    if r.Error ~= "" then
         r.FailReason = r.Error
         return r
     end

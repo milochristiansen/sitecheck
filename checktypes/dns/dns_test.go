@@ -5,13 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 func TestDNSResultInterface(t *testing.T) {
 	r := &DNSResult{
-		Pass:       protocol.PASS,
+		Pass:       core.PASS,
 		FailReason: "",
 		Host:       "example.com",
 		IPs:        "93.184.216.34",
@@ -20,8 +19,8 @@ func TestDNSResultInterface(t *testing.T) {
 	if r.CheckType() != "dns" {
 		t.Errorf("CheckType = %q, want %q", r.CheckType(), "dns")
 	}
-	if r.CheckPass() != protocol.PASS {
-		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), protocol.PASS)
+	if r.CheckPass() != core.PASS {
+		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), core.PASS)
 	}
 	if r.CheckFailReason() != "" {
 		t.Errorf("CheckFailReason = %q, want empty", r.CheckFailReason())
@@ -29,7 +28,7 @@ func TestDNSResultInterface(t *testing.T) {
 }
 
 func TestDNSPluginRegistration(t *testing.T) {
-	p, ok := registry.ByName("dns")
+	p, ok := core.ByName("dns")
 	if !ok {
 		t.Fatal("DNS plugin not registered — did init() run?")
 	}
@@ -42,7 +41,7 @@ func TestDNSPluginRegistration(t *testing.T) {
 }
 
 func TestDNSPluginCreateTableDDL(t *testing.T) {
-	p, _ := registry.ByName("dns")
+	p, _ := core.ByName("dns")
 	ddl := p.CreateTableDDL()
 	if len(ddl) != 2 {
 		t.Fatalf("CreateTableDDL returned %d statements, want 2", len(ddl))
@@ -53,7 +52,7 @@ func TestDNSPluginCreateTableDDL(t *testing.T) {
 }
 
 func TestDNSPluginCreateIndexDDL(t *testing.T) {
-	p, _ := registry.ByName("dns")
+	p, _ := core.ByName("dns")
 	ddl := p.CreateIndexDDL()
 	if len(ddl) != 1 {
 		t.Fatalf("CreateIndexDDL returned %d statements, want 1", len(ddl))
@@ -64,8 +63,8 @@ func TestDNSPluginCreateIndexDDL(t *testing.T) {
 }
 
 func TestDNSPluginDispatchWireResult(t *testing.T) {
-	p, _ := registry.ByName("dns")
-	meta := registry.ResourceMeta{
+	p, _ := core.ByName("dns")
+	meta := core.ResourceMeta{
 		Slug:           "test-dns",
 		Name:           "Test DNS",
 		Desc:           "A test",
@@ -74,7 +73,7 @@ func TestDNSPluginDispatchWireResult(t *testing.T) {
 		NotifyFail:     true,
 	}
 	cr := &DNSResult{
-		Pass:           protocol.DEGRADED,
+		Pass:           core.DEGRADED,
 		FailReason:     "slow resolution",
 		Host:           "example.com",
 		IPs:            "1.2.3.4, 5.6.7.8",
@@ -91,8 +90,8 @@ func TestDNSPluginDispatchWireResult(t *testing.T) {
 	if wr.CheckType != "dns" {
 		t.Errorf("CheckType = %q, want %q", wr.CheckType, "dns")
 	}
-	if wr.Pass != protocol.DEGRADED {
-		t.Errorf("Pass = %d, want %d", wr.Pass, protocol.DEGRADED)
+	if wr.Pass != core.DEGRADED {
+		t.Errorf("Pass = %d, want %d", wr.Pass, core.DEGRADED)
 	}
 	if wr.FailReason != "slow resolution" {
 		t.Errorf("FailReason = %q, want %q", wr.FailReason, "slow resolution")
@@ -112,17 +111,17 @@ func TestDNSPluginDispatchWireResult(t *testing.T) {
 }
 
 func TestDNSPluginExtractPoints(t *testing.T) {
-	p, _ := registry.ByName("dns")
+	p, _ := core.ByName("dns")
 	history := []DNSCheck{
-		{Pass: protocol.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
-		{Pass: protocol.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
+		{Pass: core.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
+		{Pass: core.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
 	}
 	pts := p.ExtractPoints(history)
 	if len(pts) != 2 {
 		t.Fatalf("ExtractPoints = %d points, want 2", len(pts))
 	}
-	if pts[0].Pass != protocol.PASS {
-		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, protocol.PASS)
+	if pts[0].Pass != core.PASS {
+		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, core.PASS)
 	}
 	if pts[1].Resp != 0.0 {
 		t.Errorf("pts[1].Resp = %f, want 0.0", pts[1].Resp)
@@ -130,7 +129,7 @@ func TestDNSPluginExtractPoints(t *testing.T) {
 }
 
 func TestDNSPluginExtractPointsNil(t *testing.T) {
-	p, _ := registry.ByName("dns")
+	p, _ := core.ByName("dns")
 	pts := p.ExtractPoints(nil)
 	if pts != nil {
 		t.Errorf("ExtractPoints(nil) = %v, want nil", pts)
@@ -138,7 +137,7 @@ func TestDNSPluginExtractPointsNil(t *testing.T) {
 }
 
 func TestDNSPluginExtractDurationPoints(t *testing.T) {
-	p, _ := registry.ByName("dns")
+	p, _ := core.ByName("dns")
 	pts := p.ExtractDurationPoints([]DNSCheck{})
 	if pts != nil {
 		t.Errorf("ExtractDurationPoints should return nil for DNS")
@@ -146,11 +145,11 @@ func TestDNSPluginExtractDurationPoints(t *testing.T) {
 }
 
 func TestDNSPluginLatestRecent(t *testing.T) {
-	p, _ := registry.ByName("dns")
+	p, _ := core.ByName("dns")
 	history := []DNSCheck{
-		{ID: 1, Pass: protocol.FAIL},
-		{ID: 2, Pass: protocol.PASS},
-		{ID: 3, Pass: protocol.DEGRADED},
+		{ID: 1, Pass: core.FAIL},
+		{ID: 2, Pass: core.PASS},
+		{ID: 3, Pass: core.DEGRADED},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -168,7 +167,7 @@ func TestDNSPluginLatestRecent(t *testing.T) {
 }
 
 func TestDNSPluginLatestRecentEmpty(t *testing.T) {
-	p, _ := registry.ByName("dns")
+	p, _ := core.ByName("dns")
 	latest, recent, count := p.LatestRecent([]DNSCheck{}, 15)
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
@@ -176,7 +175,7 @@ func TestDNSPluginLatestRecentEmpty(t *testing.T) {
 }
 
 func TestDNSPluginTemplateNames(t *testing.T) {
-	p, _ := registry.ByName("dns")
+	p, _ := core.ByName("dns")
 	row, body := p.TemplateNames()
 	if row != "check_dns_row" {
 		t.Errorf("row template = %q, want %q", row, "check_dns_row")

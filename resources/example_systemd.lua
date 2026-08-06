@@ -9,7 +9,7 @@ end
 function check()
     local r = systemd_check("sshd.service")
 
-    if r.Error ~= nil then
+    if r.Error ~= "" then
         r.FailReason = r.Error
         return r
     end

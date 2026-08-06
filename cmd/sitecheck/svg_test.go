@@ -11,7 +11,7 @@ import (
 
 	"sitecheck/checktypes/http"
 	"sitecheck/checktypes/outpost"
-	"sitecheck/checktypes/registry"
+	"sitecheck/core"
 )
 
 // ------------------------------------------------------------
@@ -20,7 +20,7 @@ import (
 
 func TestPointColor(t *testing.T) {
 	tests := []struct {
-		pass int
+		Pass int
 		want string
 	}{
 		{2, "#22c55e"},
@@ -31,38 +31,9 @@ func TestPointColor(t *testing.T) {
 		{-999, "#ef4444"},
 	}
 	for _, tc := range tests {
-		got := pointColor(tc.pass)
+		got := pointColor(tc.Pass)
 		if got != tc.want {
-			t.Errorf("pointColor(%d) = %q, want %q", tc.pass, got, tc.want)
-		}
-	}
-}
-
-// ------------------------------------------------------------
-// formatMS
-// ------------------------------------------------------------
-
-func TestFormatMS(t *testing.T) {
-	tests := []struct {
-		ms   float64
-		want string
-	}{
-		{500, "500ms"},
-		{1500, "1.50s"},
-		{0, "0ms"},
-		{1, "1ms"},
-		{999, "999ms"},
-		{1000, "1.00s"},
-		{2500, "2.50s"},
-		{10000, "10.00s"},
-		{1999.8, "2.00s"},
-		{2000.4, "2.00s"},
-		{2037.0, "2.04s"},
-	}
-	for _, tc := range tests {
-		got := formatMS(tc.ms)
-		if got != tc.want {
-			t.Errorf("formatMS(%v) = %q, want %q", tc.ms, got, tc.want)
+			t.Errorf("pointColor(%d) = %q, want %q", tc.Pass, got, tc.want)
 		}
 	}
 }
@@ -178,18 +149,18 @@ func TestSparkline(t *testing.T) {
 		if got := Sparkline(nil, 50, 20); got != template.HTML("") {
 			t.Errorf("nil: got %q, want empty", got)
 		}
-		if got := Sparkline([]checkPoint{}, 50, 20); got != template.HTML("") {
+		if got := Sparkline([]core.CheckPoint{}, 50, 20); got != template.HTML("") {
 			t.Errorf("empty: got %q, want empty", got)
 		}
-		if got := Sparkline([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 10:00:00"}}, 50, 20); got != template.HTML("") {
+		if got := Sparkline([]core.CheckPoint{{Pass: 2, Resp: 100, TS: "2024-01-01 10:00:00"}}, 50, 20); got != template.HTML("") {
 			t.Errorf("1 pt: got %q, want empty", got)
 		}
 	})
 
 	t.Run("two_points", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 50, ts: "2024-01-01 10:00:00"},
-			{pass: 2, resp: 100, ts: "2024-01-01 10:05:00"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 50, TS: "2024-01-01 10:00:00"},
+			{Pass: 2, Resp: 100, TS: "2024-01-01 10:05:00"},
 		}
 		got := Sparkline(pts, 50, 20)
 		s := string(got)
@@ -211,10 +182,10 @@ func TestSparkline(t *testing.T) {
 	})
 
 	t.Run("all_same_response", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 10:00:00"},
-			{pass: 2, resp: 100, ts: "2024-01-01 10:05:00"},
-			{pass: 2, resp: 100, ts: "2024-01-01 10:10:00"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 10:00:00"},
+			{Pass: 2, Resp: 100, TS: "2024-01-01 10:05:00"},
+			{Pass: 2, Resp: 100, TS: "2024-01-01 10:10:00"},
 		}
 		got := Sparkline(pts, 50, 20)
 		s := string(got)
@@ -227,11 +198,11 @@ func TestSparkline(t *testing.T) {
 	})
 
 	t.Run("colors_by_pass", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "10:00"},
-			{pass: 1, resp: 150, ts: "10:05"},
-			{pass: -1, resp: 200, ts: "10:10"},
-			{pass: 0, resp: 300, ts: "10:15"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "10:00"},
+			{Pass: 1, Resp: 150, TS: "10:05"},
+			{Pass: -1, Resp: 200, TS: "10:10"},
+			{Pass: 0, Resp: 300, TS: "10:15"},
 		}
 		got := Sparkline(pts, 100, 30)
 		s := string(got)
@@ -254,18 +225,18 @@ func TestLineChart(t *testing.T) {
 		if got := LineChart(nil, 300, 180, start, end); got != template.HTML("") {
 			t.Errorf("nil: got %q, want empty", got)
 		}
-		if got := LineChart([]checkPoint{}, 300, 180, start, end); got != template.HTML("") {
+		if got := LineChart([]core.CheckPoint{}, 300, 180, start, end); got != template.HTML("") {
 			t.Errorf("empty: got %q, want empty", got)
 		}
-		if got := LineChart([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 10:00:00"}}, 300, 180, start, end); got != template.HTML("") {
+		if got := LineChart([]core.CheckPoint{{Pass: 2, Resp: 100, TS: "2024-01-01 10:00:00"}}, 300, 180, start, end); got != template.HTML("") {
 			t.Errorf("1 pt: got %q, want empty", got)
 		}
 	})
 
 	t.Run("invalid_window", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 50, ts: "2024-01-01 10:00:00"},
-			{pass: 0, resp: 200, ts: "2024-01-01 10:05:00"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 50, TS: "2024-01-01 10:00:00"},
+			{Pass: 0, Resp: 200, TS: "2024-01-01 10:05:00"},
 		}
 		if got := LineChart(pts, 300, 180, end, start); got != template.HTML("") {
 			t.Errorf("reversed window: got %q, want empty", got)
@@ -273,9 +244,9 @@ func TestLineChart(t *testing.T) {
 	})
 
 	t.Run("two_points", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 50, ts: "2024-01-01 10:00:00"},
-			{pass: 0, resp: 200, ts: "2024-01-01 10:05:00"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 50, TS: "2024-01-01 10:00:00"},
+			{Pass: 0, Resp: 200, TS: "2024-01-01 10:05:00"},
 		}
 		got := LineChart(pts, 300, 180, start, end)
 		s := string(got)
@@ -309,16 +280,16 @@ func TestLineChart(t *testing.T) {
 	})
 
 	t.Run("dots_have_tooltips", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 50, ts: "2024-01-01 10:00:00"},
-			{pass: 0, resp: 2500, ts: "2024-01-01 10:05:00"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 50, TS: "2024-01-01 10:00:00"},
+			{Pass: 0, Resp: 2500, TS: "2024-01-01 10:05:00"},
 		}
 		got := string(LineChart(pts, 300, 180, start, end))
 		if n := strings.Count(got, "<title>"); n != 2 {
 			t.Errorf("found %d tooltips, want 2 (one per dot)", n)
 		}
 		for _, want := range []string{
-			"<title>2024-01-01 10:00:00\n50ms</title>",
+			"<title>2024-01-01 10:00:00\n50.0ms</title>",
 			"<title>2024-01-01 10:05:00\n2.50s</title>",
 		} {
 			if !strings.Contains(got, want) {
@@ -329,9 +300,9 @@ func TestLineChart(t *testing.T) {
 
 	t.Run("points_positioned_by_time", func(t *testing.T) {
 		// 24h window 00:00-24:00 UTC; points at 06:00 (25%) and 18:00 (75%).
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 06:00:00"},
-			{pass: 0, resp: 300, ts: "2024-01-01 18:00:00"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 06:00:00"},
+			{Pass: 0, Resp: 300, TS: "2024-01-01 18:00:00"},
 		}
 		got := string(LineChart(pts, 300, 180, start, end))
 		// plotW = 300-60-16 = 224: x = 60 + 0.25*224 = 116.0, 60 + 0.75*224 = 228.0.
@@ -344,10 +315,10 @@ func TestLineChart(t *testing.T) {
 	})
 
 	t.Run("off_window_points_clamped", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2023-12-31 12:00:00"}, // before window
-			{pass: 2, resp: 150, ts: "2024-01-01 12:00:00"}, // 50%
-			{pass: 0, resp: 200, ts: "2024-01-02 12:00:00"}, // after window
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2023-12-31 12:00:00"}, // before window
+			{Pass: 2, Resp: 150, TS: "2024-01-01 12:00:00"}, // 50%
+			{Pass: 0, Resp: 200, TS: "2024-01-02 12:00:00"}, // after window
 		}
 		got := string(LineChart(pts, 300, 180, start, end))
 		for _, want := range []string{`cx="60.0"`, `cx="172.0"`, `cx="284.0"`} {
@@ -358,10 +329,10 @@ func TestLineChart(t *testing.T) {
 	})
 
 	t.Run("unparseable_timestamps_skipped", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "garbage"},
-			{pass: 2, resp: 150, ts: "2024-01-01 06:00:00"},
-			{pass: 2, resp: 200, ts: "2024-01-01 18:00:00"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "garbage"},
+			{Pass: 2, Resp: 150, TS: "2024-01-01 06:00:00"},
+			{Pass: 2, Resp: 200, TS: "2024-01-01 18:00:00"},
 		}
 		got := LineChart(pts, 300, 180, start, end)
 		if got == template.HTML("") {
@@ -373,9 +344,9 @@ func TestLineChart(t *testing.T) {
 	})
 
 	t.Run("fewer_than_2_parseable_is_empty", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "garbage"},
-			{pass: 2, resp: 150, ts: "also garbage"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "garbage"},
+			{Pass: 2, Resp: 150, TS: "also garbage"},
 		}
 		if got := LineChart(pts, 300, 180, start, end); got != template.HTML("") {
 			t.Errorf("got %q, want empty with no parseable points", got)
@@ -383,9 +354,9 @@ func TestLineChart(t *testing.T) {
 	})
 
 	t.Run("fixed_x_ticks", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 06:00:00"},
-			{pass: 2, resp: 200, ts: "2024-01-01 18:00:00"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 06:00:00"},
+			{Pass: 2, Resp: 200, TS: "2024-01-01 18:00:00"},
 		}
 		got := string(LineChart(pts, 300, 180, start, end))
 		// 24h window -> 6h grid aligned to UTC midnight: 00/06/12/18 on 01-01, 00 on 01-02.
@@ -397,11 +368,11 @@ func TestLineChart(t *testing.T) {
 	})
 
 	t.Run("x_labels_independent_of_point_count", func(t *testing.T) {
-		mk := func(n int) []checkPoint {
-			pts := make([]checkPoint, n)
+		mk := func(n int) []core.CheckPoint {
+			pts := make([]core.CheckPoint, n)
 			for i := range pts {
 				ts := time.Date(2024, 1, 1, 0, i%60, 0, 0, time.UTC).Format("2006-01-02 15:04:05")
-				pts[i] = checkPoint{pass: 2, resp: float64(100 + i), ts: ts}
+				pts[i] = core.CheckPoint{Pass: 2, Resp: float64(100 + i), TS: ts}
 			}
 			return pts
 		}
@@ -416,10 +387,10 @@ func TestLineChart(t *testing.T) {
 	})
 
 	t.Run("flat_data", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 10:00:00"},
-			{pass: 2, resp: 100, ts: "2024-01-01 10:05:00"},
-			{pass: 2, resp: 100, ts: "2024-01-01 10:10:00"},
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 10:00:00"},
+			{Pass: 2, Resp: 100, TS: "2024-01-01 10:05:00"},
+			{Pass: 2, Resp: 100, TS: "2024-01-01 10:10:00"},
 		}
 		got := LineChart(pts, 300, 180, start, end)
 		s := string(got)
@@ -436,16 +407,16 @@ func TestLineChartPair(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
-	pts := []checkPoint{
-		{pass: 2, resp: 100, ts: "2024-01-01 06:00:00"},
-		{pass: 0, resp: 300, ts: "2024-01-01 18:00:00"},
+	pts := []core.CheckPoint{
+		{Pass: 2, Resp: 100, TS: "2024-01-01 06:00:00"},
+		{Pass: 0, Resp: 300, TS: "2024-01-01 18:00:00"},
 	}
 
 	t.Run("less_than_2_points_is_empty", func(t *testing.T) {
 		if got := LineChartPair(nil, start, end); got != template.HTML("") {
 			t.Errorf("nil: got %q, want empty", got)
 		}
-		if got := LineChartPair([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 06:00:00"}}, start, end); got != template.HTML("") {
+		if got := LineChartPair([]core.CheckPoint{{Pass: 2, Resp: 100, TS: "2024-01-01 06:00:00"}}, start, end); got != template.HTML("") {
 			t.Errorf("1 pt: got %q, want empty", got)
 		}
 	})
@@ -500,16 +471,16 @@ func TestLineChartPair(t *testing.T) {
 func TestThirtyDayChartPair(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := start.Add(720 * time.Hour)
-	pts := []checkPoint{
-		{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"},
-		{pass: 0, resp: 300, ts: "2024-01-01 00:45:00"},
+	pts := []core.CheckPoint{
+		{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"},
+		{Pass: 0, Resp: 300, TS: "2024-01-01 00:45:00"},
 	}
 
 	t.Run("less_than_2_points_is_empty", func(t *testing.T) {
 		if got := ThirtyDayChartPair(nil, start, end); got != template.HTML("") {
 			t.Errorf("nil: got %q, want empty", got)
 		}
-		if got := ThirtyDayChartPair([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}}, start, end); got != template.HTML("") {
+		if got := ThirtyDayChartPair([]core.CheckPoint{{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"}}, start, end); got != template.HTML("") {
 			t.Errorf("1 pt: got %q, want empty", got)
 		}
 	})
@@ -557,16 +528,16 @@ func TestThirtyDayChart(t *testing.T) {
 		if got := ThirtyDayChart(nil, 700, 280, start, end); got != template.HTML("") {
 			t.Errorf("nil: got %q, want empty", got)
 		}
-		if got := ThirtyDayChart([]checkPoint{{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}}, 700, 280, start, end); got != template.HTML("") {
+		if got := ThirtyDayChart([]core.CheckPoint{{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"}}, 700, 280, start, end); got != template.HTML("") {
 			t.Errorf("1 pt: got %q, want empty", got)
 		}
 	})
 
 	t.Run("renders_90_bucket_dots_with_tooltips", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"},
-			{pass: 0, resp: 300, ts: "2024-01-01 00:45:00"}, // same 8h window: avg 200ms, 1 fail
-			{pass: 1, resp: 150, ts: "2024-01-02 03:30:00"}, // degraded window
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"},
+			{Pass: 0, Resp: 300, TS: "2024-01-01 00:45:00"}, // same 8h window: avg 200ms, 1 fail
+			{Pass: 1, Resp: 150, TS: "2024-01-02 03:30:00"}, // degraded window
 		}
 		got := string(ThirtyDayChart(pts, 700, 280, start, end))
 		if n := strings.Count(got, "<circle"); n != 90 {
@@ -577,7 +548,7 @@ func TestThirtyDayChart(t *testing.T) {
 				t.Errorf("missing color %s", c)
 			}
 		}
-		if !strings.Contains(got, "avg 200ms") {
+		if !strings.Contains(got, "avg 200.0ms") {
 			t.Error("missing average in tooltip")
 		}
 		if !strings.Contains(got, "1 pass, 0 degraded, 1 fail, 0 unknown") {
@@ -589,15 +560,15 @@ func TestThirtyDayChart(t *testing.T) {
 	})
 
 	t.Run("worst_event_color_precedence", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // bucket 0 [00:00,08:00): pass+unknown -> purple
-			{pass: -1, resp: 200, ts: "2024-01-01 00:45:00"},
-			{pass: 2, resp: 100, ts: "2024-01-01 08:15:00"}, // bucket 1 [08:00,16:00): pass+degraded -> yellow
-			{pass: 1, resp: 150, ts: "2024-01-01 08:45:00"},
-			{pass: 2, resp: 100, ts: "2024-01-01 16:15:00"}, // bucket 2 [16:00,24:00): pass+degraded+fail -> red
-			{pass: 1, resp: 150, ts: "2024-01-01 16:30:00"},
-			{pass: 0, resp: 300, ts: "2024-01-01 16:45:00"},
-			{pass: 2, resp: 100, ts: "2024-01-02 00:15:00"}, // bucket 3: only pass -> green
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"}, // bucket 0 [00:00,08:00): pass+unknown -> purple
+			{Pass: -1, Resp: 200, TS: "2024-01-01 00:45:00"},
+			{Pass: 2, Resp: 100, TS: "2024-01-01 08:15:00"}, // bucket 1 [08:00,16:00): pass+degraded -> yellow
+			{Pass: 1, Resp: 150, TS: "2024-01-01 08:45:00"},
+			{Pass: 2, Resp: 100, TS: "2024-01-01 16:15:00"}, // bucket 2 [16:00,24:00): pass+degraded+fail -> red
+			{Pass: 1, Resp: 150, TS: "2024-01-01 16:30:00"},
+			{Pass: 0, Resp: 300, TS: "2024-01-01 16:45:00"},
+			{Pass: 2, Resp: 100, TS: "2024-01-02 00:15:00"}, // bucket 3: only pass -> green
 		}
 		got := string(ThirtyDayChart(pts, 700, 280, start, end))
 		// plotW = 624; bucket k center x = 60 + 624*(k+0.5)/90.
@@ -621,10 +592,10 @@ func TestThirtyDayChart(t *testing.T) {
 	})
 
 	t.Run("connecting_line_spans_all_buckets", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // bucket 0
-			{pass: 2, resp: 150, ts: "2024-01-01 08:15:00"}, // bucket 1
-			{pass: 2, resp: 200, ts: "2024-01-01 16:15:00"}, // bucket 2
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"}, // bucket 0
+			{Pass: 2, Resp: 150, TS: "2024-01-01 08:15:00"}, // bucket 1
+			{Pass: 2, Resp: 200, TS: "2024-01-01 16:15:00"}, // bucket 2
 		}
 		got := string(ThirtyDayChart(pts, 700, 280, start, end))
 		if n := strings.Count(got, "<polyline"); n != 1 {
@@ -640,9 +611,9 @@ func TestThirtyDayChart(t *testing.T) {
 	})
 
 	t.Run("empty_buckets_sit_on_zero_baseline", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // bucket 0 only
-			{pass: 2, resp: 150, ts: "2024-01-03 00:15:00"}, // bucket 6 only
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"}, // bucket 0 only
+			{Pass: 2, Resp: 150, TS: "2024-01-03 00:15:00"}, // bucket 6 only
 		}
 		got := string(ThirtyDayChart(pts, 700, 280, start, end))
 		// padTop + plotH = 12 + 228 = 240: empty dots sit on the zero baseline.
@@ -653,9 +624,9 @@ func TestThirtyDayChart(t *testing.T) {
 	})
 
 	t.Run("connecting_line_dips_to_zero_in_gaps", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // bucket 0
-			{pass: 2, resp: 150, ts: "2024-01-03 00:15:00"}, // bucket 6
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"}, // bucket 0
+			{Pass: 2, Resp: 150, TS: "2024-01-03 00:15:00"}, // bucket 6
 		}
 		got := string(ThirtyDayChart(pts, 700, 280, start, end))
 		// The single polyline must include both data dots and the zero-baseline gaps
@@ -670,9 +641,9 @@ func TestThirtyDayChart(t *testing.T) {
 	})
 
 	t.Run("fixed_window_bucket_positions", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"}, // first bucket (k=0)
-			{pass: 2, resp: 200, ts: "2024-01-30 23:15:00"}, // last bucket (k=89)
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"}, // first bucket (k=0)
+			{Pass: 2, Resp: 200, TS: "2024-01-30 23:15:00"}, // last bucket (k=89)
 		}
 		got := string(ThirtyDayChart(pts, 700, 280, start, end))
 		// First bucket center: 60 + 624*0.5/90 = 63.5; last (k=89):
@@ -689,9 +660,9 @@ func TestThirtyDayChart(t *testing.T) {
 		// last bucket, not be dropped.
 		ws := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		we := ws.Add(720*time.Hour + 20*time.Minute)
-		pts := []checkPoint{
-			{pass: 2, resp: 100, ts: "2024-01-01 00:15:00"},
-			{pass: 0, resp: 300, ts: "2024-01-31 00:10:00"}, // in the 20-min tail
+		pts := []core.CheckPoint{
+			{Pass: 2, Resp: 100, TS: "2024-01-01 00:15:00"},
+			{Pass: 0, Resp: 300, TS: "2024-01-31 00:10:00"}, // in the 20-min tail
 		}
 		got := string(ThirtyDayChart(pts, 700, 280, ws, we))
 		if n := strings.Count(got, "<circle"); n != 90 {
@@ -734,16 +705,16 @@ func TestExtractPoints(t *testing.T) {
 		if len(got) != 2 {
 			t.Fatalf("expected 2 points, got %d", len(got))
 		}
-		if got[0].pass != 2 || got[0].resp != 150.5 || got[0].ts != "2024-01-01 10:00:00" {
-			t.Errorf("point 0 = %+v, want {pass:2 resp:150.5 ts:2024-01-01 10:00:00}", got[0])
+		if got[0].Pass != 2 || got[0].Resp != 150.5 || got[0].TS != "2024-01-01 10:00:00" {
+			t.Errorf("point 0 = %+v, want {Pass:2 Resp:150.5 TS:2024-01-01 10:00:00}", got[0])
 		}
-		if got[1].pass != 0 || got[1].resp != 3200.0 || got[1].ts != "2024-01-01 10:05:00" {
-			t.Errorf("point 1 = %+v, want {pass:0 resp:3200 ts:2024-01-01 10:05:00}", got[1])
+		if got[1].Pass != 0 || got[1].Resp != 3200.0 || got[1].TS != "2024-01-01 10:05:00" {
+			t.Errorf("point 1 = %+v, want {Pass:0 Resp:3200 TS:2024-01-01 10:05:00}", got[1])
 		}
 	})
 
 	// POSSIBLE BUG: extractPoints returns non-nil empty slice when plugin returns nil
-	// (make([]checkPoint, len(nil)) produces []checkPoint{} instead of nil).
+	// (make([]core.CheckPoint, len(nil)) produces []core.CheckPoint{} instead of nil).
 	t.Run("wrong_type", func(t *testing.T) {
 		got := extractPoints("not a slice", &http.HTTPPlugin{})
 		if len(got) != 0 {
@@ -790,7 +761,7 @@ func TestExtractDurationPoints(t *testing.T) {
 				FailCount:      3,
 			},
 		}
-		p, ok := registry.ByName("outpost")
+		p, ok := core.ByName("outpost")
 		if !ok {
 			t.Fatal("outpost plugin not registered")
 		}
@@ -798,10 +769,10 @@ func TestExtractDurationPoints(t *testing.T) {
 		if len(got) != 2 {
 			t.Fatalf("expected 2 points, got %d", len(got))
 		}
-		if got[0].pass != 2 || got[0].resp != 1000 || got[0].ts != "2024-01-01 10:00:00" {
+		if got[0].Pass != 2 || got[0].Resp != 1000 || got[0].TS != "2024-01-01 10:00:00" {
 			t.Errorf("point 0 = %+v", got[0])
 		}
-		if got[1].pass != 0 || got[1].resp != 5000 || got[1].ts != "2024-01-01 10:05:00" {
+		if got[1].Pass != 0 || got[1].Resp != 5000 || got[1].TS != "2024-01-01 10:05:00" {
 			t.Errorf("point 1 = %+v", got[1])
 		}
 	})
@@ -816,7 +787,7 @@ func TestExtractDurationPoints(t *testing.T) {
 
 	// POSSIBLE BUG: same non-nil empty slice as extractPoints.
 	t.Run("wrong_type", func(t *testing.T) {
-		p, ok := registry.ByName("outpost")
+		p, ok := core.ByName("outpost")
 		if !ok {
 			t.Fatal("outpost plugin not registered")
 		}
@@ -832,7 +803,7 @@ func TestExtractDurationPoints(t *testing.T) {
 // ------------------------------------------------------------
 
 func TestExtractPointsViaRegistry(t *testing.T) {
-	p, ok := registry.ByName("http")
+	p, ok := core.ByName("http")
 	if !ok {
 		t.Fatal("http plugin not registered; import side effects may be missing")
 	}
@@ -845,8 +816,8 @@ func TestExtractPointsViaRegistry(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 point, got %d", len(got))
 	}
-	if got[0].resp != 200 {
-		t.Errorf("resp = %v, want 200", got[0].resp)
+	if got[0].Resp != 200 {
+		t.Errorf("resp = %v, want 200", got[0].Resp)
 	}
 }
 
@@ -861,9 +832,9 @@ func TestSparklineInfResp(t *testing.T) {
 			t.Logf("recovered from panic with Inf/NaN data: %v", r)
 		}
 	}()
-	pts := []checkPoint{
-		{pass: 2, resp: math.Inf(1), ts: "2024-01-01 10:00:00"},
-		{pass: 2, resp: 100, ts: "2024-01-01 10:05:00"},
+	pts := []core.CheckPoint{
+		{Pass: 2, Resp: math.Inf(1), TS: "2024-01-01 10:00:00"},
+		{Pass: 2, Resp: 100, TS: "2024-01-01 10:05:00"},
 	}
 	got := Sparkline(pts, 50, 20)
 	_ = got

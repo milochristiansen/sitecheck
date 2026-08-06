@@ -9,7 +9,7 @@ import (
 
 func newState() *lua.State {
 	l := lua.NewState()
-	Open(l) // registers json global, returns 1 (the module table)
+	Open(l)  // registers json global, returns 1 (the module table)
 	l.Pop(1) // discard module table
 	return l
 }

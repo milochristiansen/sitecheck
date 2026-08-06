@@ -13,7 +13,7 @@ function check()
         privileged = false,
     })
 
-    if r.Error ~= nil then
+    if r.Error ~= "" then
         r.FailReason = r.Error
         return r
     end

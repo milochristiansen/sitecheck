@@ -6,11 +6,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
-
-	"sitecheck/protocol"
 )
 
 // handler is the HTTP handler for GET requests on any path. It validates the bearer token, scans resources, runs the
@@ -21,21 +18,11 @@ func handler(cfg *Config) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
-		// Validate bearer token.
-		if cfg.Token != "" {
-			auth := r.Header.Get("Authorization")
-			token := ""
-			if strings.HasPrefix(auth, "Bearer ") {
-				token = strings.TrimPrefix(auth, "Bearer ")
-			}
-			if token != cfg.Token {
-				http.Error(w, "unauthorized: invalid bearer token", http.StatusUnauthorized)
-				return
-			}
+		if cfg.Token != "" && bearerToken(r.Header.Get("Authorization")) != cfg.Token {
+			http.Error(w, "unauthorized: invalid bearer token", http.StatusUnauthorized)
+			return
 		}
 
-		// Scan resources directory.
 		resources, err := ScanResources(cfg.ResourcesDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
@@ -49,34 +36,14 @@ func handler(cfg *Config) http.HandlerFunc {
 			return
 		}
 
-		// Create pool and submit jobs.
-		pool := NewPool(cfg.Workers, cfg.DefaultTimeout)
-
-		fmt.Fprintf(os.Stderr, "Running %d check(s) with %d worker(s)...\n", len(resources), cfg.Workers)
-
-		go func() {
-			for _, res := range resources {
-				pool.Submit(Job{Resource: res})
-			}
-			pool.Wait()
-		}()
-
-		// Stream results as JSON-lines with chunked encoding.
-		w.Header().Set("Content-Type", "application/json")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-
-		for wr := range pool.Results() {
-			if err := protocol.WriteResult(w, wr); err != nil {
-				fmt.Fprintf(os.Stderr, "write result error: %v\n", err)
-				return
-			}
-			flusher.Flush()
-		}
+		runChecks(cfg, resources, w, flusher.Flush)
 	}
 }
 

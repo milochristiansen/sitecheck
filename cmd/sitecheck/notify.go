@@ -3,47 +3,53 @@ package main
 import (
 	"fmt"
 
+	"sitecheck/core"
 	"sitecheck/notify"
-	"sitecheck/protocol"
 )
 
-// notifyStatusChange sends a notification if the check status changed from prevPass to currentPass and the notify flag
-// for the new status is set. Transitions from UNKNOWN (-1) are never notified — UNKNOWN is a core-internal sentinel for
-// outpost connectivity, not a real check result.
-func notifyStatusChange(sender notify.Sender, slug, name, failReason string, currentPass, prevPass int, hasPrev bool, notifyPass, notifyDegraded, notifyFail bool) {
-	if sender == nil {
-		return
-	}
-	if !hasPrev {
-		return
-	}
-	if prevPass == currentPass {
+// statusChange describes a check's status transition for notification.
+type statusChange struct {
+	Slug                                   string
+	Name                                   string
+	FailReason                             string
+	CurrentPass                            int
+	PrevPass                               int
+	HasPrev                                bool
+	NotifyPass, NotifyDegraded, NotifyFail bool
+}
+
+// notifyStatusChange sends a notification if the check status changed from
+// PrevPass to CurrentPass and the notify flag for the new status is set.
+// Transitions from UNKNOWN are never notified — UNKNOWN is a core-internal
+// sentinel for outpost connectivity, not a real check result.
+func notifyStatusChange(sender notify.Sender, sc statusChange) {
+	if sender == nil || !sc.HasPrev || sc.PrevPass == sc.CurrentPass {
 		return
 	}
 
 	send := false
-	switch currentPass {
-	case protocol.PASS:
-		send = notifyPass
-	case protocol.DEGRADED:
-		send = notifyDegraded
-	case protocol.FAIL:
-		send = notifyFail
+	switch sc.CurrentPass {
+	case core.PASS:
+		send = sc.NotifyPass
+	case core.DEGRADED:
+		send = sc.NotifyDegraded
+	case core.FAIL:
+		send = sc.NotifyFail
 	}
 
 	if !send {
 		fmt.Printf("  notify: %s transition %s→%s, notify flag not set\n",
-			slug, passName(prevPass), passName(currentPass))
+			sc.Slug, passName(sc.PrevPass), passName(sc.CurrentPass))
 		return
 	}
 
-	title := fmt.Sprintf("SiteCheck: %s (%s)", name, slug)
-	message := fmt.Sprintf("%s is now %s", name, passName(currentPass))
-	if failReason != "" && currentPass != protocol.PASS {
-		message += ": " + failReason
+	title := fmt.Sprintf("SiteCheck: %s (%s)", sc.Name, sc.Slug)
+	message := fmt.Sprintf("%s is now %s", sc.Name, passName(sc.CurrentPass))
+	if sc.FailReason != "" && sc.CurrentPass != core.PASS {
+		message += ": " + sc.FailReason
 	}
 	fmt.Printf("  notify: %s transition %s→%s, sending\n",
-		slug, passName(prevPass), passName(currentPass))
+		sc.Slug, passName(sc.PrevPass), passName(sc.CurrentPass))
 	if err := sender.Send(notify.Message{Title: title, Body: message}); err != nil {
 		fmt.Printf("  notify: send error: %v\n", err)
 	}
@@ -51,11 +57,11 @@ func notifyStatusChange(sender notify.Sender, slug, name, failReason string, cur
 
 func passName(p int) string {
 	switch p {
-	case protocol.PASS:
+	case core.PASS:
 		return "PASS"
-	case protocol.DEGRADED:
+	case core.DEGRADED:
 		return "DEGRADED"
-	case protocol.FAIL:
+	case core.FAIL:
 		return "FAIL"
 	default:
 		return "UNKNOWN"

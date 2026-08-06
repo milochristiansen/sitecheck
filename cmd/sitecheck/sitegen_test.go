@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"sitecheck/checktypes/http"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 func TestCountStatuses(t *testing.T) {
@@ -73,17 +73,17 @@ func TestLastNHours(t *testing.T) {
 		if result != nil {
 			t.Errorf("nil: got non-nil")
 		}
-		result = lastNHours([]checkPoint{}, 24)
+		result = lastNHours([]core.CheckPoint{}, 24)
 		if result != nil {
 			t.Errorf("empty slice: got non-nil")
 		}
 	})
 
 	t.Run("all points within window", func(t *testing.T) {
-		pts := []checkPoint{
-			{ts: now.Add(-1 * time.Hour).Format(fmt)},
-			{ts: now.Add(-2 * time.Hour).Format(fmt)},
-			{ts: now.Add(-3 * time.Hour).Format(fmt)},
+		pts := []core.CheckPoint{
+			{TS: now.Add(-1 * time.Hour).Format(fmt)},
+			{TS: now.Add(-2 * time.Hour).Format(fmt)},
+			{TS: now.Add(-3 * time.Hour).Format(fmt)},
 		}
 		result := lastNHours(pts, 24)
 		if len(result) != 3 {
@@ -92,33 +92,33 @@ func TestLastNHours(t *testing.T) {
 	})
 
 	t.Run("some points outside window", func(t *testing.T) {
-		pts := []checkPoint{
-			{ts: now.Add(-48 * time.Hour).Format(fmt)},
-			{ts: now.Add(-36 * time.Hour).Format(fmt)},
-			{ts: now.Add(-2 * time.Hour).Format(fmt)},
-			{ts: now.Add(-1 * time.Hour).Format(fmt)},
+		pts := []core.CheckPoint{
+			{TS: now.Add(-48 * time.Hour).Format(fmt)},
+			{TS: now.Add(-36 * time.Hour).Format(fmt)},
+			{TS: now.Add(-2 * time.Hour).Format(fmt)},
+			{TS: now.Add(-1 * time.Hour).Format(fmt)},
 		}
 		result := lastNHours(pts, 12)
 		if len(result) != 2 {
 			t.Errorf("some outside: got %d points, want 2", len(result))
 		}
 		// Verify the returned points are the recent ones
-		if result[0].ts != pts[2].ts || result[1].ts != pts[3].ts {
+		if result[0].TS != pts[2].TS || result[1].TS != pts[3].TS {
 			t.Errorf("some outside: returned wrong points")
 		}
 	})
 
 	t.Run("all points outside window returns last point", func(t *testing.T) {
-		pts := []checkPoint{
-			{ts: now.Add(-72 * time.Hour).Format(fmt)},
-			{ts: now.Add(-48 * time.Hour).Format(fmt)},
+		pts := []core.CheckPoint{
+			{TS: now.Add(-72 * time.Hour).Format(fmt)},
+			{TS: now.Add(-48 * time.Hour).Format(fmt)},
 		}
 		result := lastNHours(pts, 24)
 		if len(result) != 1 {
 			t.Errorf("all outside: got %d points, want 1", len(result))
 		}
-		if result[0].ts != pts[1].ts {
-			t.Errorf("all outside: got ts=%q, want last point ts=%q", result[0].ts, pts[1].ts)
+		if result[0].TS != pts[1].TS {
+			t.Errorf("all outside: got ts=%q, want last point ts=%q", result[0].TS, pts[1].TS)
 		}
 	})
 }
@@ -132,14 +132,14 @@ func TestCalcRespStats(t *testing.T) {
 		if avg != 0 || min != 0 || max != 0 {
 			t.Errorf("nil: got (%f,%f,%f), want (0,0,0)", avg, min, max)
 		}
-		avg, min, max = calcRespStats([]checkPoint{})
+		avg, min, max = calcRespStats([]core.CheckPoint{})
 		if avg != 0 || min != 0 || max != 0 {
 			t.Errorf("empty slice: got (%f,%f,%f), want (0,0,0)", avg, min, max)
 		}
 	})
 
 	t.Run("single point returns (v,v,v)", func(t *testing.T) {
-		pts := []checkPoint{{resp: 42.5}}
+		pts := []core.CheckPoint{{Resp: 42.5}}
 		avg, min, max := calcRespStats(pts)
 		if avg < 42.5-tol || avg > 42.5+tol {
 			t.Errorf("single avg: got %f, want 42.5", avg)
@@ -153,10 +153,10 @@ func TestCalcRespStats(t *testing.T) {
 	})
 
 	t.Run("multiple points returns correct stats", func(t *testing.T) {
-		pts := []checkPoint{
-			{resp: 10.0},
-			{resp: 20.0},
-			{resp: 30.0},
+		pts := []core.CheckPoint{
+			{Resp: 10.0},
+			{Resp: 20.0},
+			{Resp: 30.0},
 		}
 		avg, min, max := calcRespStats(pts)
 		if avg < 20.0-tol || avg > 20.0+tol {
@@ -171,10 +171,10 @@ func TestCalcRespStats(t *testing.T) {
 	})
 
 	t.Run("unsorted points still give correct min/max", func(t *testing.T) {
-		pts := []checkPoint{
-			{resp: 50.0},
-			{resp: 10.0},
-			{resp: 30.0},
+		pts := []core.CheckPoint{
+			{Resp: 50.0},
+			{Resp: 10.0},
+			{Resp: 30.0},
 		}
 		avg, min, max := calcRespStats(pts)
 		if avg < 30.0-tol || avg > 30.0+tol {
@@ -190,10 +190,10 @@ func TestCalcRespStats(t *testing.T) {
 }
 
 func TestLastN(t *testing.T) {
-	mk := func(n int) []checkPoint {
-		pts := make([]checkPoint, n)
+	mk := func(n int) []core.CheckPoint {
+		pts := make([]core.CheckPoint, n)
 		for i := range pts {
-			pts[i] = checkPoint{resp: float64(i)}
+			pts[i] = core.CheckPoint{Resp: float64(i)}
 		}
 		return pts
 	}
@@ -202,7 +202,7 @@ func TestLastN(t *testing.T) {
 		if got := lastN(nil, 5); got != nil {
 			t.Errorf("nil: got non-nil")
 		}
-		if got := lastN([]checkPoint{}, 5); len(got) != 0 {
+		if got := lastN([]core.CheckPoint{}, 5); len(got) != 0 {
 			t.Errorf("empty: got %d points, want 0", len(got))
 		}
 	})
@@ -225,15 +225,15 @@ func TestLastN(t *testing.T) {
 			t.Fatalf("got %d points, want 4", len(got))
 		}
 		for i, p := range got {
-			if p.resp != float64(6+i) {
-				t.Errorf("point %d resp = %v, want %v", i, p.resp, 6+i)
+			if p.Resp != float64(6+i) {
+				t.Errorf("point %d resp = %v, want %v", i, p.Resp, 6+i)
 			}
 		}
 	})
 
 	t.Run("n=1 returns last point", func(t *testing.T) {
 		got := lastN(mk(3), 1)
-		if len(got) != 1 || got[0].resp != 2 {
+		if len(got) != 1 || got[0].Resp != 2 {
 			t.Errorf("got %v, want last point only", got)
 		}
 	})
@@ -443,8 +443,8 @@ func TestChecksSimilar(t *testing.T) {
 	}
 
 	t.Run("differs_only_in_timing_is_similar", func(t *testing.T) {
-		a := mk(protocol.PASS, 200, 100)
-		b := mk(protocol.PASS, 200, 250) // different response time
+		a := mk(core.PASS, 200, 100)
+		b := mk(core.PASS, 200, 250) // different response time
 		if !checksSimilar(a, b) {
 			t.Error("checks differing only in response time must be similar")
 		}
@@ -459,17 +459,17 @@ func TestChecksSimilar(t *testing.T) {
 	})
 
 	t.Run("different_pass_is_not_similar", func(t *testing.T) {
-		if checksSimilar(mk(protocol.PASS, 200, 100), mk(protocol.FAIL, 200, 100)) {
+		if checksSimilar(mk(core.PASS, 200, 100), mk(core.FAIL, 200, 100)) {
 			t.Error("pass vs fail must not be similar")
 		}
 	})
 
 	t.Run("different_attribute_is_not_similar", func(t *testing.T) {
-		a := mk(protocol.PASS, 200, 100)
-		if checksSimilar(a, mk(protocol.PASS, 500, 100)) {
+		a := mk(core.PASS, 200, 100)
+		if checksSimilar(a, mk(core.PASS, 500, 100)) {
 			t.Error("different status codes must not be similar")
 		}
-		b := mk(protocol.PASS, 200, 100)
+		b := mk(core.PASS, 200, 100)
 		b.URL = "https://b.example.com"
 		if checksSimilar(a, b) {
 			t.Error("different URLs must not be similar")
@@ -477,7 +477,7 @@ func TestChecksSimilar(t *testing.T) {
 	})
 
 	t.Run("different_types_are_not_similar", func(t *testing.T) {
-		if checksSimilar(mk(protocol.PASS, 200, 100), &http.HTTPCheck{Pass: protocol.PASS, StatusCode: 200}) {
+		if checksSimilar(mk(core.PASS, 200, 100), &http.HTTPCheck{Pass: core.PASS, StatusCode: 200}) {
 			t.Error("pointer vs value must not be similar")
 		}
 	})
@@ -486,12 +486,12 @@ func TestChecksSimilar(t *testing.T) {
 func TestElideRecentChecks(t *testing.T) {
 	// Newest-first: three similar PASS, one FAIL, two similar PASS.
 	history := []http.HTTPCheck{
-		{Timestamp: "t1", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 10},
-		{Timestamp: "t2", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 11},
-		{Timestamp: "t3", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 12},
-		{Timestamp: "t4", Pass: protocol.FAIL, StatusCode: 500, ResponseTimeMS: 0},
-		{Timestamp: "t5", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 9},
-		{Timestamp: "t6", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 8},
+		{Timestamp: "t1", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 10},
+		{Timestamp: "t2", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 11},
+		{Timestamp: "t3", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 12},
+		{Timestamp: "t4", Pass: core.FAIL, StatusCode: 500, ResponseTimeMS: 0},
+		{Timestamp: "t5", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 9},
+		{Timestamp: "t6", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 8},
 	}
 	rows := elideRecentChecks(history, "row", "body")
 	// Expect: t1 check, "(2 similar PASS checks elided)", t4 check, t5 check, "(1 similar PASS checks elided)".
@@ -522,9 +522,9 @@ func TestElideRecentChecks(t *testing.T) {
 func TestElideRecentChecksNoElision(t *testing.T) {
 	// No two adjacent checks are similar: every row is a real check, no markers.
 	history := []http.HTTPCheck{
-		{Timestamp: "t1", Pass: protocol.PASS, StatusCode: 200, ResponseTimeMS: 10},
-		{Timestamp: "t2", Pass: protocol.FAIL, StatusCode: 500, ResponseTimeMS: 0},
-		{Timestamp: "t3", Pass: protocol.DEGRADED, StatusCode: 200, ResponseTimeMS: 20},
+		{Timestamp: "t1", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 10},
+		{Timestamp: "t2", Pass: core.FAIL, StatusCode: 500, ResponseTimeMS: 0},
+		{Timestamp: "t3", Pass: core.DEGRADED, StatusCode: 200, ResponseTimeMS: 20},
 	}
 	rows := elideRecentChecks(history, "row", "body")
 	if len(rows) != 3 {

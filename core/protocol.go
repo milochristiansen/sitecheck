@@ -1,8 +1,8 @@
-// Package protocol defines the shared wire types and constants used by both sitecheck (core) and scoutpost (outpost).
-// It holds the CheckResult interface, pass-level constants, the JSON-lines wire format, and streaming helpers.
-//
-// Concrete result structs live in the checktypes/* plugin packages; they implement CheckResult.
-package protocol
+// Package core defines the contracts shared by the sitecheck core and the
+// scoutpost outpost: pass-level constants, the JSON-lines wire format between
+// the two binaries, the CheckPlugin interface and plugin registry, and the Lua
+// integration helpers used by the check-type plugins and both binaries.
+package core
 
 import (
 	"bufio"
@@ -13,11 +13,13 @@ import (
 
 // --- Pass level constants ---------------------------------------------------
 
-// These are exported to Lua scripts by the outpost's Lua VM.
+// FAIL, DEGRADED and PASS are exported to Lua scripts by the outpost's Lua VM.
+// UNKNOWN is an internal value used when some sort of error makes the resource state unknowable.
 const (
 	FAIL     = 0
 	DEGRADED = 1
 	PASS     = 2
+	UNKNOWN  = -1
 
 	// CheckTypeLuaError is the sentinel CheckType returned by an outpost when a Lua check script
 	// encountered a runtime error. The core resolves the real type from DB history.
@@ -29,8 +31,8 @@ const (
 // CheckResult is the common interface shared by all check result types.
 // Each plugin package defines a concrete result struct implementing this interface.
 type CheckResult interface {
-	CheckType() string   // e.g. "http", "ping", "tcp", "dns", "ssl", "systemd", "outpost"
-	CheckPass() int      // PASS=2, DEGRADED=1, FAIL=0
+	CheckType() string // e.g. "http", "ping", "tcp", "dns", "ssl", "systemd", "outpost"
+	CheckPass() int    // PASS=2, DEGRADED=1, FAIL=0
 	CheckFailReason() string
 	CheckResponseMS() float64
 }
@@ -38,36 +40,34 @@ type CheckResult interface {
 // --- Wire format ------------------------------------------------------------
 
 // WireVersion is the wire format version stamped by scoutpost on every WireResult it emits.
-// The version is a string, not a number: JSON floats make minor versions ambiguous ("1.10"
-// vs "1.1"), while string comparison keeps the semantics exact.
 const WireVersion = "1.1"
 
 // WireResult is the JSON-lines wire format sent from outpost to core.
 // Data is the check-type-specific payload serialized as a JSON object.
 type WireResult struct {
-	Slug            string            `json:"slug"`
-	Name            string            `json:"name"`
-	Desc            string            `json:"desc"`
-	CheckType       string            `json:"check_type"`
-	Pass            int               `json:"pass"`
-	FailReason      string            `json:"fail_reason,omitempty"`
-	ResponseMS      float64           `json:"response_ms"`
-	ElapsedMS       int64             `json:"elapsed_ms"`
-	Error           string            `json:"error,omitempty"`
-	Data            json.RawMessage   `json:"data"`
-	NotifyPass      bool              `json:"notify_pass"`
-	NotifyDegraded  bool              `json:"notify_degraded"`
-	NotifyFail      bool              `json:"notify_fail"`
-	OutpostSlug     string            `json:"outpost_slug,omitempty"`
-	Sites           map[string]string `json:"sites,omitempty"` // site name → detail level
-	Version         string            `json:"version,omitempty"`
+	Slug           string            `json:"slug"`
+	Name           string            `json:"name"`
+	Desc           string            `json:"desc"`
+	CheckType      string            `json:"check_type"`
+	Pass           int               `json:"pass"`
+	FailReason     string            `json:"fail_reason,omitempty"`
+	ResponseMS     float64           `json:"response_ms"`
+	ElapsedMS      int64             `json:"elapsed_ms"`
+	Error          string            `json:"error,omitempty"`
+	Data           json.RawMessage   `json:"data"`
+	NotifyPass     bool              `json:"notify_pass"`
+	NotifyDegraded bool              `json:"notify_degraded"`
+	NotifyFail     bool              `json:"notify_fail"`
+	OutpostSlug    string            `json:"outpost_slug,omitempty"`
+	Sites          map[string]string `json:"sites,omitempty"` // site name → detail level
+	Version        string            `json:"version,omitempty"`
 }
 
 // IsKnownWireVersion reports whether v is a wire format version this build understands.
 // The empty string means the field was absent — the old format, i.e. version 1.
 func IsKnownWireVersion(v string) bool {
 	switch v {
-	case "", "1", "1.1":
+	case "", "1.1":
 		return true
 	}
 	return false
@@ -113,7 +113,8 @@ func WriteResult(w io.Writer, r WireResult) error {
 	if err != nil {
 		return fmt.Errorf("marshal result: %w", err)
 	}
-	if _, err := w.Write(append(b, '\n')); err != nil {
+	b = append(b, '\n')
+	if _, err := w.Write(b); err != nil {
 		return fmt.Errorf("write result: %w", err)
 	}
 	return nil

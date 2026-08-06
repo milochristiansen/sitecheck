@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // ------------------------------------------------------------
@@ -48,6 +48,13 @@ func TestFormatDuration(t *testing.T) {
 		{1500, "1.50s"},
 		{1000, "1.00s"},
 		{-500, "-500.0ms"},
+		{1, "1.0ms"},
+		{999, "999.0ms"},
+		{2500, "2.50s"},
+		{10000, "10.00s"},
+		{1999.8, "2.00s"},
+		{2000.4, "2.00s"},
+		{2037.0, "2.04s"},
 	}
 	for _, tt := range tests {
 		got := formatDuration(tt.ms)
@@ -108,20 +115,20 @@ func TestFormatPct(t *testing.T) {
 
 func TestStatusClass(t *testing.T) {
 	tests := []struct {
-		pass int
+		Pass int
 		want string
 	}{
-		{protocol.PASS, "pass"},
-		{protocol.DEGRADED, "degraded"},
-		{protocol.FAIL, "fail"},
+		{core.PASS, "pass"},
+		{core.DEGRADED, "degraded"},
+		{core.FAIL, "fail"},
 		{-1, "error"},
 		{99, "unknown"},
 		{-2, "unknown"},
 	}
 	for _, tt := range tests {
-		got := statusClass(tt.pass)
+		got := statusClass(tt.Pass)
 		if got != tt.want {
-			t.Errorf("statusClass(%v) = %q, want %q", tt.pass, got, tt.want)
+			t.Errorf("statusClass(%v) = %q, want %q", tt.Pass, got, tt.want)
 		}
 	}
 }
@@ -182,15 +189,15 @@ func TestCalcUptimePct(t *testing.T) {
 		if got != 0 {
 			t.Errorf("calcUptimePct(nil) = %v, want 0", got)
 		}
-		got = calcUptimePct([]checkPoint{})
+		got = calcUptimePct([]core.CheckPoint{})
 		if got != 0 {
 			t.Errorf("calcUptimePct([]) = %v, want 0", got)
 		}
 	})
 
 	t.Run("all PASS", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2}, {pass: 2}, {pass: 2},
+		pts := []core.CheckPoint{
+			{Pass: 2}, {Pass: 2}, {Pass: 2},
 		}
 		got := calcUptimePct(pts)
 		if got != 100 {
@@ -199,8 +206,8 @@ func TestCalcUptimePct(t *testing.T) {
 	})
 
 	t.Run("all FAIL", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 0}, {pass: 0}, {pass: 0},
+		pts := []core.CheckPoint{
+			{Pass: 0}, {Pass: 0}, {Pass: 0},
 		}
 		got := calcUptimePct(pts)
 		if got != 0 {
@@ -208,8 +215,8 @@ func TestCalcUptimePct(t *testing.T) {
 		}
 
 		// POSSIBLE BUG: FAIL with non-zero response is still a fail
-		pts2 := []checkPoint{
-			{pass: 0, resp: 150},
+		pts2 := []core.CheckPoint{
+			{Pass: 0, Resp: 150},
 		}
 		got2 := calcUptimePct(pts2)
 		if got2 != 0 {
@@ -218,8 +225,8 @@ func TestCalcUptimePct(t *testing.T) {
 	})
 
 	t.Run("mixed", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 2}, {pass: 2}, {pass: 0}, {pass: 2},
+		pts := []core.CheckPoint{
+			{Pass: 2}, {Pass: 2}, {Pass: 0}, {Pass: 2},
 		}
 		got := calcUptimePct(pts)
 		if got != 75 {
@@ -228,8 +235,8 @@ func TestCalcUptimePct(t *testing.T) {
 	})
 
 	t.Run("all DEGRADED", func(t *testing.T) {
-		pts := []checkPoint{
-			{pass: 1}, {pass: 1},
+		pts := []core.CheckPoint{
+			{Pass: 1}, {Pass: 1},
 		}
 		got := calcUptimePct(pts)
 		if got != 100 {
@@ -247,9 +254,9 @@ func TestPassName(t *testing.T) {
 		p    int
 		want string
 	}{
-		{protocol.PASS, "PASS"},
-		{protocol.DEGRADED, "DEGRADED"},
-		{protocol.FAIL, "FAIL"},
+		{core.PASS, "PASS"},
+		{core.DEGRADED, "DEGRADED"},
+		{core.FAIL, "FAIL"},
 		{-1, "UNKNOWN"},
 		{99, "UNKNOWN"},
 	}

@@ -7,50 +7,32 @@ import (
 	"strings"
 	"time"
 
-	"sitecheck/checktypes/registry"
+	"sitecheck/core"
 )
 
 // sqliteTimeFormat is the layout of the SQLite datetime strings used as check timestamps.
 const sqliteTimeFormat = "2006-01-02 15:04:05"
 
-// checkPoint is an internal type used by sparkline, line chart and uptime calculations. It extracts the common fields
-// from any typed DB check struct.
-type checkPoint struct {
-	pass int
-	resp float64
-	ts   string
-}
-
-// extractPoints converts a typed DB check slice to the common internal form via the plugin.
-func extractPoints(history interface{}, p registry.CheckPlugin) []checkPoint {
+// extractPoints converts a typed DB check slice to the common form via the plugin.
+func extractPoints(history interface{}, p core.CheckPlugin) []core.CheckPoint {
 	if history == nil || p == nil {
 		return nil
 	}
-	pts := p.ExtractPoints(history)
-	out := make([]checkPoint, len(pts))
-	for i, pt := range pts {
-		out[i] = checkPoint{pt.Pass, pt.Resp, pt.TS}
-	}
-	return out
+	return p.ExtractPoints(history)
 }
 
 // extractDurationPoints is like extractPoints but uses duration fields. Only types that support duration charts
 // return non-empty results.
-func extractDurationPoints(history interface{}, p registry.CheckPlugin) []checkPoint {
+func extractDurationPoints(history interface{}, p core.CheckPlugin) []core.CheckPoint {
 	if history == nil || p == nil {
 		return nil
 	}
-	pts := p.ExtractDurationPoints(history)
-	out := make([]checkPoint, len(pts))
-	for i, pt := range pts {
-		out[i] = checkPoint{pt.Pass, pt.Resp, pt.TS}
-	}
-	return out
+	return p.ExtractDurationPoints(history)
 }
 
 // Sparkline returns an inline SVG sparkline for the given check points. If there are fewer than 2 points, returns an
 // empty string.
-func Sparkline(pts []checkPoint, width, height int) template.HTML {
+func Sparkline(pts []core.CheckPoint, width, height int) template.HTML {
 	if len(pts) < 2 {
 		return template.HTML("")
 	}
@@ -60,13 +42,13 @@ func Sparkline(pts []checkPoint, width, height int) template.HTML {
 	plotH := float64(height) - pad*2
 
 	// Find value range.
-	minV, maxV := pts[0].resp, pts[0].resp
+	minV, maxV := pts[0].Resp, pts[0].Resp
 	for _, p := range pts[1:] {
-		if p.resp < minV {
-			minV = p.resp
+		if p.Resp < minV {
+			minV = p.Resp
 		}
-		if p.resp > maxV {
-			maxV = p.resp
+		if p.Resp > maxV {
+			maxV = p.Resp
 		}
 	}
 	// Ensure at least 1ms range so we don't divide by zero.
@@ -75,21 +57,14 @@ func Sparkline(pts []checkPoint, width, height int) template.HTML {
 		rangeV = 1
 	}
 
-	// Build polyline points.
-	var coords []string
-	for i, p := range pts {
-		x := pad + float64(i)/float64(len(pts)-1)*plotW
-		y := pad + plotH - (p.resp-minV)/rangeV*plotH
-		coords = append(coords, fmt.Sprintf("%.1f,%.1f", x, y))
-	}
-
-	// Build circle dots with status color.
+	// Build polyline points and status dots in one pass.
+	coords := make([]string, len(pts))
 	var dots strings.Builder
 	for i, p := range pts {
 		x := pad + float64(i)/float64(len(pts)-1)*plotW
-		y := pad + plotH - (p.resp-minV)/rangeV*plotH
-		color := pointColor(p.pass)
-		fmt.Fprintf(&dots, `<circle cx="%.1f" cy="%.1f" r="2" fill="%s"/>`, x, y, color)
+		y := pad + plotH - (p.Resp-minV)/rangeV*plotH
+		coords[i] = fmt.Sprintf("%.1f,%.1f", x, y)
+		fmt.Fprintf(&dots, `<circle cx="%.1f" cy="%.1f" r="2" fill="%s"/>`, x, y, pointColor(p.Pass))
 	}
 
 	svg := fmt.Sprintf(
@@ -109,7 +84,7 @@ func Sparkline(pts []checkPoint, width, height int) template.HTML {
 // (oldest first). The x-axis always spans exactly [windowStart, windowEnd]; each point is
 // plotted at its time position within that window (points outside it are clamped to the
 // edges), so the time scale is fixed no matter how many points exist.
-func renderLineChart(pts []checkPoint, width, height int, windowStart, windowEnd time.Time, cls string) template.HTML {
+func renderLineChart(pts []core.CheckPoint, width, height int, windowStart, windowEnd time.Time, cls string) template.HTML {
 	if len(pts) < 2 {
 		return template.HTML("")
 	}
@@ -130,13 +105,13 @@ func renderLineChart(pts []checkPoint, width, height int, windowStart, windowEnd
 	// Position points by their timestamp within the fixed window. Rows with unparseable
 	// timestamps are skipped.
 	type placed struct {
-		pt   checkPoint
+		pt   core.CheckPoint
 		x, y float64
 	}
 	points := make([]placed, 0, len(pts))
-	minV, maxV := pts[0].resp, pts[0].resp
+	minV, maxV := pts[0].Resp, pts[0].Resp
 	for _, p := range pts {
-		t, err := time.Parse(sqliteTimeFormat, p.ts)
+		t, err := time.Parse(sqliteTimeFormat, p.TS)
 		if err != nil {
 			continue
 		}
@@ -146,11 +121,11 @@ func renderLineChart(pts []checkPoint, width, height int, windowStart, windowEnd
 		} else if frac > 1 {
 			frac = 1
 		}
-		if p.resp < minV {
-			minV = p.resp
+		if p.Resp < minV {
+			minV = p.Resp
 		}
-		if p.resp > maxV {
-			maxV = p.resp
+		if p.Resp > maxV {
+			maxV = p.Resp
 		}
 		points = append(points, placed{pt: p, x: padLeft + frac*plotW})
 	}
@@ -160,49 +135,16 @@ func renderLineChart(pts []checkPoint, width, height int, windowStart, windowEnd
 	minV, maxV = widenFlatRange(minV, maxV)
 	rangeV := maxV - minV
 	for i := range points {
-		points[i].y = padTop + plotH - (points[i].pt.resp-minV)/rangeV*plotH
+		points[i].y = padTop + plotH - (points[i].pt.Resp-minV)/rangeV*plotH
 	}
 
 	// Y-axis ticks.
 	yticks := yTicks(minV, maxV)
 
 	var b strings.Builder
-	classAttr := ""
-	if cls != "" {
-		classAttr = ` class="` + cls + `"`
-	}
-	b.WriteString(fmt.Sprintf(
-		`<svg%s width="%d" height="%d" viewBox="0 0 %d %d" xmlns="http://www.w3.org/2000/svg">`,
-		classAttr, width, height, width, height,
-	))
-
-	// Background.
-	b.WriteString(fmt.Sprintf(
-		`<rect x="%g" y="%g" width="%g" height="%g" fill="#1e293b" stroke="#334155" stroke-width="1"/>`,
-		padLeft, padTop, plotW, plotH,
-	))
-
-	// Grid lines and Y labels.
-	for _, yv := range yticks {
-		y := padTop + plotH - (yv-minV)/rangeV*plotH
-		b.WriteString(fmt.Sprintf(
-			`<line x1="%g" y1="%g" x2="%g" y2="%g" stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>`,
-			padLeft, y, padLeft+plotW, y,
-		))
-		b.WriteString(fmt.Sprintf(
-			`<text x="%g" y="%g" fill="#94a3b8" font-size="11" text-anchor="end" dominant-baseline="middle">%s</text>`,
-			padLeft-6, y, formatMS(yv),
-		))
-	}
-
-	// X-axis time labels at fixed positions across the window.
-	for _, tk := range chartTicks(windowStart, windowEnd) {
-		x := padLeft + float64(tk.Sub(windowStart))/float64(windowDur)*plotW
-		b.WriteString(fmt.Sprintf(
-			`<text x="%g" y="%g" fill="#94a3b8" font-size="10" text-anchor="middle">%s</text>`,
-			x, float64(height)-6, chartTimeLabel(tk, windowDur),
-		))
-	}
+	b.WriteString(svgHeader(cls, width, height))
+	writeYGrid(&b, yticks, minV, rangeV, padLeft, padTop, plotW, plotH)
+	writeXTicks(&b, chartTicks(windowStart, windowEnd), windowStart, windowDur, padLeft, plotW, height)
 
 	// Data polyline.
 	coords := make([]string, len(points))
@@ -218,7 +160,7 @@ func renderLineChart(pts []checkPoint, width, height int, windowStart, windowEnd
 	for _, p := range points {
 		b.WriteString(fmt.Sprintf(
 			`<circle cx="%.1f" cy="%.1f" r="3" fill="%s" stroke="#0f172a" stroke-width="1"><title>%s</title></circle>`,
-			p.x, p.y, pointColor(p.pt.pass), pointTitle(p.pt),
+			p.x, p.y, pointColor(p.pt.Pass), pointTitle(p.pt),
 		))
 	}
 
@@ -228,7 +170,7 @@ func renderLineChart(pts []checkPoint, width, height int, windowStart, windowEnd
 
 // LineChart returns a full inline SVG line chart with axes, grid, and labels at the given
 // size. See renderLineChart for the fixed time-scale semantics.
-func LineChart(pts []checkPoint, width, height int, windowStart, windowEnd time.Time) template.HTML {
+func LineChart(pts []core.CheckPoint, width, height int, windowStart, windowEnd time.Time) template.HTML {
 	return renderLineChart(pts, width, height, windowStart, windowEnd, "")
 }
 
@@ -244,7 +186,7 @@ const (
 // LineChartPair returns two renders of the same chart in one HTML string: a
 // chart-wide version sized for the full page width and a chart-narrow version at the
 // standard size. Both carry class attributes so CSS can display exactly one of them.
-func LineChartPair(pts []checkPoint, windowStart, windowEnd time.Time) template.HTML {
+func LineChartPair(pts []core.CheckPoint, windowStart, windowEnd time.Time) template.HTML {
 	if len(pts) < 2 {
 		return template.HTML("")
 	}
@@ -271,7 +213,7 @@ type bucket struct {
 // its y encodes the average response time over that window, and it is colored by the
 // worst single check in the window (fail > degraded > unknown > pass). A native tooltip
 // per dot shows the window start, the average, and the pass/degraded/fail/unknown counts.
-func renderThirtyDayChart(pts []checkPoint, width, height int, windowStart, windowEnd time.Time, cls string) template.HTML {
+func renderThirtyDayChart(pts []core.CheckPoint, width, height int, windowStart, windowEnd time.Time, cls string) template.HTML {
 	if len(pts) < 2 {
 		return template.HTML("")
 	}
@@ -297,7 +239,7 @@ func renderThirtyDayChart(pts []checkPoint, width, height int, windowStart, wind
 	buckets := make([]bucket, nBuckets)
 	gridStart := windowStart.Truncate(chartBucketWindow)
 	for _, p := range pts {
-		t, err := time.Parse(sqliteTimeFormat, p.ts)
+		t, err := time.Parse(sqliteTimeFormat, p.TS)
 		if err != nil {
 			continue
 		}
@@ -314,13 +256,13 @@ func renderThirtyDayChart(pts []checkPoint, width, height int, windowStart, wind
 		}
 		b := &buckets[k]
 		b.count++
-		b.sum += p.resp
-		switch p.pass {
+		b.sum += p.Resp
+		switch p.Pass {
 		case 2:
 			b.pass++
 		case 1:
 			b.degraded++
-		case -1:
+		case core.UNKNOWN:
 			b.unknown++
 		default:
 			b.fail++
@@ -357,42 +299,9 @@ func renderThirtyDayChart(pts []checkPoint, width, height int, windowStart, wind
 	yticks := yTicks(minV, maxV)
 
 	var b strings.Builder
-	classAttr := ""
-	if cls != "" {
-		classAttr = ` class="` + cls + `"`
-	}
-	b.WriteString(fmt.Sprintf(
-		`<svg%s width="%d" height="%d" viewBox="0 0 %d %d" xmlns="http://www.w3.org/2000/svg">`,
-		classAttr, width, height, width, height,
-	))
-
-	// Background.
-	b.WriteString(fmt.Sprintf(
-		`<rect x="%g" y="%g" width="%g" height="%g" fill="#1e293b" stroke="#334155" stroke-width="1"/>`,
-		padLeft, padTop, plotW, plotH,
-	))
-
-	// Grid lines and Y labels.
-	for _, yv := range yticks {
-		y := padTop + plotH - (yv-minV)/rangeV*plotH
-		b.WriteString(fmt.Sprintf(
-			`<line x1="%g" y1="%g" x2="%g" y2="%g" stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>`,
-			padLeft, y, padLeft+plotW, y,
-		))
-		b.WriteString(fmt.Sprintf(
-			`<text x="%g" y="%g" fill="#94a3b8" font-size="11" text-anchor="end" dominant-baseline="middle">%s</text>`,
-			padLeft-6, y, formatMS(yv),
-		))
-	}
-
-	// X-axis time labels at fixed positions across the window.
-	for _, tk := range chartTicks(windowStart, windowEnd) {
-		x := padLeft + float64(tk.Sub(windowStart))/float64(windowDur)*plotW
-		b.WriteString(fmt.Sprintf(
-			`<text x="%g" y="%g" fill="#94a3b8" font-size="10" text-anchor="middle">%s</text>`,
-			x, float64(height)-6, chartTimeLabel(tk, windowDur),
-		))
-	}
+	b.WriteString(svgHeader(cls, width, height))
+	writeYGrid(&b, yticks, minV, rangeV, padLeft, padTop, plotW, plotH)
+	writeXTicks(&b, chartTicks(windowStart, windowEnd), windowStart, windowDur, padLeft, plotW, height)
 
 	// Dot geometry: one dot per bucket window at its fixed-window position. Empty
 	// windows sit on the zero baseline.
@@ -440,14 +349,14 @@ func renderThirtyDayChart(pts []checkPoint, width, height int, windowStart, wind
 
 // ThirtyDayChart returns the 30-day chart as a single SVG at the given size. See
 // renderThirtyDayChart for the bucket semantics.
-func ThirtyDayChart(pts []checkPoint, width, height int, windowStart, windowEnd time.Time) template.HTML {
+func ThirtyDayChart(pts []core.CheckPoint, width, height int, windowStart, windowEnd time.Time) template.HTML {
 	return renderThirtyDayChart(pts, width, height, windowStart, windowEnd, "")
 }
 
 // ThirtyDayChartPair returns two renders of the 30-day chart (page-width and standard),
 // mirroring the responsive pair used for the 24h chart. CSS shows one at a time based on
 // device width.
-func ThirtyDayChartPair(pts []checkPoint, windowStart, windowEnd time.Time) template.HTML {
+func ThirtyDayChartPair(pts []core.CheckPoint, windowStart, windowEnd time.Time) template.HTML {
 	if len(pts) < 2 {
 		return template.HTML("")
 	}
@@ -486,7 +395,7 @@ func bucketTitle(b *bucket, start time.Time) string {
 	}
 	return fmt.Sprintf("%s\navg %s\n%d pass, %d degraded, %d fail, %d unknown",
 		start.Format("2006-01-02 15:04"),
-		formatMS(b.sum/float64(b.count)),
+		formatDuration(b.sum/float64(b.count)),
 		b.pass, b.degraded, b.fail, b.unknown)
 }
 
@@ -577,29 +486,58 @@ func niceStep(rough float64) float64 {
 	return 10 * exp
 }
 
-// formatMS formats milliseconds as a short label.
-func formatMS(ms float64) string {
-	if ms >= 1000 {
-		return fmt.Sprintf("%.2fs", ms/1000)
-	}
-	return fmt.Sprintf("%.0fms", ms)
+func pointTitle(pt core.CheckPoint) string {
+	return fmt.Sprintf("%s\n%s", pt.TS, formatDuration(pt.Resp))
 }
-
 func pointColor(pass int) string {
 	switch pass {
 	case 2:
 		return "#22c55e"
 	case 1:
 		return "#eab308"
-	case -1:
+	case core.UNKNOWN:
 		return "#8b5cf6"
 	default:
 		return "#ef4444"
 	}
 }
 
-// pointTitle is the native tooltip for a line-chart dot: the check's date and time on
-// the first line, its response time on the second.
-func pointTitle(pt checkPoint) string {
-	return fmt.Sprintf("%s\n%s", pt.ts, formatMS(pt.resp))
+// svgHeader opens an SVG element with the given class (when non-empty) and size.
+func svgHeader(cls string, width, height int) string {
+	if cls != "" {
+		cls = ` class="` + cls + `"`
+	}
+	return fmt.Sprintf(`<svg%s width="%d" height="%d" viewBox="0 0 %d %d" xmlns="http://www.w3.org/2000/svg">`,
+		cls, width, height, width, height)
+}
+
+// writeYGrid writes the plot background, horizontal grid lines, and y-axis
+// labels for the plot area.
+func writeYGrid(b *strings.Builder, yticks []float64, minV, rangeV, padLeft, padTop, plotW, plotH float64) {
+	b.WriteString(fmt.Sprintf(
+		`<rect x="%g" y="%g" width="%g" height="%g" fill="#1e293b" stroke="#334155" stroke-width="1"/>`,
+		padLeft, padTop, plotW, plotH,
+	))
+	for _, yv := range yticks {
+		y := padTop + plotH - (yv-minV)/rangeV*plotH
+		b.WriteString(fmt.Sprintf(
+			`<line x1="%g" y1="%g" x2="%g" y2="%g" stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>`,
+			padLeft, y, padLeft+plotW, y,
+		))
+		b.WriteString(fmt.Sprintf(
+			`<text x="%g" y="%g" fill="#94a3b8" font-size="11" text-anchor="end" dominant-baseline="middle">%s</text>`,
+			padLeft-6, y, formatDuration(yv),
+		))
+	}
+}
+
+// writeXTicks writes the x-axis time labels at fixed positions across the window.
+func writeXTicks(b *strings.Builder, ticks []time.Time, windowStart time.Time, windowDur time.Duration, padLeft, plotW float64, height int) {
+	for _, tk := range ticks {
+		x := padLeft + float64(tk.Sub(windowStart))/float64(windowDur)*plotW
+		b.WriteString(fmt.Sprintf(
+			`<text x="%g" y="%g" fill="#94a3b8" font-size="10" text-anchor="middle">%s</text>`,
+			x, float64(height)-6, chartTimeLabel(tk, windowDur),
+		))
+	}
 }

@@ -1,4 +1,4 @@
-// Package ping implements registry.CheckPlugin for ICMP ping checks.
+// Package ping implements core.CheckPlugin for ICMP ping checks.
 package ping
 
 import (
@@ -13,13 +13,12 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // --- Result struct ----------------------------------------------------------
 
-// PingResult implements protocol.CheckResult for ICMP echo checks.
+// PingResult implements core.CheckResult for ICMP echo checks.
 type PingResult struct {
 	Pass            int
 	FailReason      string
@@ -147,16 +146,16 @@ func (p *pingPlugin) QuerySince(db *sql.DB, slug, outpostSlug string, since time
 	var checks []PingCheck
 	for rows.Next() {
 		var (
-			c              PingCheck
-			durationMS     sql.NullInt64
-			responseMS     sql.NullFloat64
-			packetsSent    sql.NullInt64
-			packetsRcvd    sql.NullInt64
-			packetLossPct  sql.NullFloat64
-			minMS          sql.NullFloat64
-			maxMS          sql.NullFloat64
-			host           sql.NullString
-			errMsg         sql.NullString
+			c             PingCheck
+			durationMS    sql.NullInt64
+			responseMS    sql.NullFloat64
+			packetsSent   sql.NullInt64
+			packetsRcvd   sql.NullInt64
+			packetLossPct sql.NullFloat64
+			minMS         sql.NullFloat64
+			maxMS         sql.NullFloat64
+			host          sql.NullString
+			errMsg        sql.NullString
 		)
 		err := rows.Scan(&c.ID, &c.Slug, &c.Timestamp, &durationMS, &c.Pass,
 			&responseMS, &packetsSent, &packetsRcvd, &packetLossPct,
@@ -181,19 +180,19 @@ func (p *pingPlugin) QuerySince(db *sql.DB, slug, outpostSlug string, since time
 
 // --- Common field access ----------------------------------------------------
 
-func (p *pingPlugin) ExtractPoints(history interface{}) []registry.CheckPoint {
+func (p *pingPlugin) ExtractPoints(history interface{}) []core.CheckPoint {
 	h, ok := history.([]PingCheck)
 	if !ok {
 		return nil
 	}
-	pts := make([]registry.CheckPoint, len(h))
+	pts := make([]core.CheckPoint, len(h))
 	for i, c := range h {
-		pts[i] = registry.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
+		pts[i] = core.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
 	}
 	return pts
 }
 
-func (p *pingPlugin) ExtractDurationPoints(history interface{}) []registry.CheckPoint {
+func (p *pingPlugin) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 	return nil
 }
 
@@ -225,13 +224,13 @@ func (p *pingPlugin) RegisterLua(l *lua.State, defaultTimeout int) {
 		privileged := true
 
 		if !l.IsNil(2) && l.TypeOf(2) == lua.TypTable {
-			count = readIntOpt(l, 2, "count", 3)
-			timeout = readIntOpt(l, 2, "timeout", defaultTimeout)
-			privileged = readBoolOpt(l, 2, "privileged", true)
+			count = core.ReadIntOpt(l, 2, "count", 3)
+			timeout = core.ReadIntOpt(l, 2, "timeout", defaultTimeout)
+			privileged = core.ReadBoolOpt(l, 2, "privileged", true)
 		}
 
 		r := &PingResult{
-			Pass:        protocol.FAIL,
+			Pass:        core.FAIL,
 			Host:        host,
 			PacketsSent: count,
 		}
@@ -329,7 +328,7 @@ func (p *pingPlugin) RegisterLua(l *lua.State, defaultTimeout int) {
 				continue
 			}
 
-			rtt := float64(time.Since(sendTime).Microseconds()) / 1000.0
+			rtt := time.Since(sendTime).Seconds() * 1000
 			rtts = append(rtts, rtt)
 			received++
 		}
@@ -365,107 +364,25 @@ func (p *pingPlugin) RegisterLua(l *lua.State, defaultTimeout int) {
 
 // pushPingResult pushes a PingResult as a Lua userdata with metatable accessors.
 func pushPingResult(l *lua.State, r *PingResult) {
-	l.Push(r)
-	l.NewTable(0, 2)
-
-	l.Push("__index")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*PingResult)
-		switch l.ToString(2) {
-		case "Pass":
-			l.Push(int64(r.Pass))
-		case "FailReason":
-			pushStr(l, r.FailReason)
-		case "Host":
-			l.Push(r.Host)
-		case "PacketsSent":
-			l.Push(int64(r.PacketsSent))
-		case "PacketsReceived":
-			l.Push(int64(r.PacketsReceived))
-		case "PacketLossPct":
-			l.Push(r.PacketLossPct)
-		case "MinMS":
-			l.Push(r.MinMS)
-		case "MaxMS":
-			l.Push(r.MaxMS)
-		case "ResponseTimeMS":
-			l.Push(r.ResponseTimeMS)
-		case "Error":
-			pushStr(l, r.Error)
-		default:
-			l.Push(nil)
-		}
-		return 1
+	core.PushResultUserData(l, r, map[string]core.LuaField{
+		"Pass":            {Get: func(l *lua.State) { l.Push(int64(r.Pass)) }, Set: func(l *lua.State) { r.Pass = int(l.ToInt(3)) }},
+		"FailReason":      {Get: func(l *lua.State) { l.Push(r.FailReason) }, Set: func(l *lua.State) { r.FailReason = l.ToString(3) }},
+		"Host":            {Get: func(l *lua.State) { l.Push(r.Host) }, Set: func(l *lua.State) { r.Host = l.ToString(3) }},
+		"PacketsSent":     {Get: func(l *lua.State) { l.Push(int64(r.PacketsSent)) }},
+		"PacketsReceived": {Get: func(l *lua.State) { l.Push(int64(r.PacketsReceived)) }},
+		"PacketLossPct":   {Get: func(l *lua.State) { l.Push(r.PacketLossPct) }},
+		"MinMS":           {Get: func(l *lua.State) { l.Push(r.MinMS) }},
+		"MaxMS":           {Get: func(l *lua.State) { l.Push(r.MaxMS) }},
+		"ResponseTimeMS":  {Get: func(l *lua.State) { l.Push(r.ResponseTimeMS) }},
+		"Error":           {Get: func(l *lua.State) { l.Push(r.Error) }, Set: func(l *lua.State) { r.Error = l.ToString(3) }},
 	})
-	l.SetTableRaw(-3)
-
-	l.Push("__newindex")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*PingResult)
-		switch l.ToString(2) {
-		case "Pass":
-			r.Pass = int(l.ToInt(3))
-		case "FailReason":
-			r.FailReason = l.ToString(3)
-		case "Host":
-			r.Host = l.ToString(3)
-		case "Error":
-			r.Error = l.ToString(3)
-		}
-		return 0
-	})
-	l.SetTableRaw(-3)
-
-	l.SetMetaTable(-2)
-}
-
-// --- Lua helpers (inlined from lmods) ---------------------------------------
-
-func pushStr(l *lua.State, s string) {
-	if s == "" {
-		l.Push(nil)
-	} else {
-		l.Push(s)
-	}
-}
-
-func readIntOpt(l *lua.State, tableIdx int, key string, def int) int {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil {
-		return def
-	}
-	switch n := l.GetRaw(-1).(type) {
-	case int64:
-		l.Pop(1)
-		return int(n)
-	case float64:
-		l.Pop(1)
-		return int(n)
-	}
-	l.Pop(1)
-	return def
-}
-
-func readBoolOpt(l *lua.State, tableIdx int, key string, def bool) bool {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil {
-		return def
-	}
-	if b, ok := l.GetRaw(-1).(bool); ok {
-		l.Pop(1)
-		return b
-	}
-	l.Pop(1)
-	return def
 }
 
 // --- DispatchWireResult -----------------------------------------------------
 
-func (p *pingPlugin) DispatchWireResult(res registry.ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult {
+func (p *pingPlugin) DispatchWireResult(res core.ResourceMeta, cr core.CheckResult, elapsed time.Duration) core.WireResult {
 	r := cr.(*PingResult)
-	return protocol.NewWireResult(
+	return core.NewWireResult(
 		res.Slug, res.Name, res.Desc,
 		"ping", r.Pass, r.FailReason,
 		r.ResponseTimeMS, elapsed.Milliseconds(),
@@ -481,10 +398,8 @@ func (p *pingPlugin) TemplateNames() (row, body string) {
 	return "check_ping_row", "check_ping_body"
 }
 
-
-
 // --- Registration -----------------------------------------------------------
 
 func init() {
-	registry.Register(&pingPlugin{})
+	core.Register(&pingPlugin{})
 }

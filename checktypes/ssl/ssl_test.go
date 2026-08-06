@@ -5,13 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 func TestSSLResultInterface(t *testing.T) {
 	r := &SSLResult{
-		Pass:           protocol.PASS,
+		Pass:           core.PASS,
 		FailReason:     "",
 		Host:           "example.com",
 		Port:           443,
@@ -26,8 +25,8 @@ func TestSSLResultInterface(t *testing.T) {
 	if r.CheckType() != "ssl" {
 		t.Errorf("CheckType = %q, want %q", r.CheckType(), "ssl")
 	}
-	if r.CheckPass() != protocol.PASS {
-		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), protocol.PASS)
+	if r.CheckPass() != core.PASS {
+		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), core.PASS)
 	}
 	if r.CheckFailReason() != "" {
 		t.Errorf("CheckFailReason = %q, want empty", r.CheckFailReason())
@@ -38,7 +37,7 @@ func TestSSLResultInterface(t *testing.T) {
 }
 
 func TestSSLPluginRegistration(t *testing.T) {
-	p, ok := registry.ByName("ssl")
+	p, ok := core.ByName("ssl")
 	if !ok {
 		t.Fatal("SSL plugin not registered — did init() run?")
 	}
@@ -51,7 +50,7 @@ func TestSSLPluginRegistration(t *testing.T) {
 }
 
 func TestSSLPluginCreateTableDDL(t *testing.T) {
-	p, _ := registry.ByName("ssl")
+	p, _ := core.ByName("ssl")
 	ddl := p.CreateTableDDL()
 	if len(ddl) != 2 {
 		t.Fatalf("CreateTableDDL returned %d statements, want 2", len(ddl))
@@ -62,7 +61,7 @@ func TestSSLPluginCreateTableDDL(t *testing.T) {
 }
 
 func TestSSLPluginCreateIndexDDL(t *testing.T) {
-	p, _ := registry.ByName("ssl")
+	p, _ := core.ByName("ssl")
 	ddl := p.CreateIndexDDL()
 	if len(ddl) != 1 {
 		t.Fatalf("CreateIndexDDL returned %d statements, want 1", len(ddl))
@@ -73,8 +72,8 @@ func TestSSLPluginCreateIndexDDL(t *testing.T) {
 }
 
 func TestSSLPluginDispatchWireResult(t *testing.T) {
-	p, _ := registry.ByName("ssl")
-	meta := registry.ResourceMeta{
+	p, _ := core.ByName("ssl")
+	meta := core.ResourceMeta{
 		Slug:           "test-ssl",
 		Name:           "Test SSL",
 		Desc:           "A test",
@@ -83,7 +82,7 @@ func TestSSLPluginDispatchWireResult(t *testing.T) {
 		NotifyFail:     true,
 	}
 	cr := &SSLResult{
-		Pass:           protocol.DEGRADED,
+		Pass:           core.DEGRADED,
 		FailReason:     "certificate expiring soon",
 		Host:           "example.com",
 		Port:           443,
@@ -105,8 +104,8 @@ func TestSSLPluginDispatchWireResult(t *testing.T) {
 	if wr.CheckType != "ssl" {
 		t.Errorf("CheckType = %q, want %q", wr.CheckType, "ssl")
 	}
-	if wr.Pass != protocol.DEGRADED {
-		t.Errorf("Pass = %d, want %d", wr.Pass, protocol.DEGRADED)
+	if wr.Pass != core.DEGRADED {
+		t.Errorf("Pass = %d, want %d", wr.Pass, core.DEGRADED)
 	}
 	if wr.FailReason != "certificate expiring soon" {
 		t.Errorf("FailReason = %q, want %q", wr.FailReason, "certificate expiring soon")
@@ -126,17 +125,17 @@ func TestSSLPluginDispatchWireResult(t *testing.T) {
 }
 
 func TestSSLPluginExtractPoints(t *testing.T) {
-	p, _ := registry.ByName("ssl")
+	p, _ := core.ByName("ssl")
 	history := []SSLCheck{
-		{Pass: protocol.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
-		{Pass: protocol.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
+		{Pass: core.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
+		{Pass: core.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
 	}
 	pts := p.ExtractPoints(history)
 	if len(pts) != 2 {
 		t.Fatalf("ExtractPoints = %d points, want 2", len(pts))
 	}
-	if pts[0].Pass != protocol.PASS {
-		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, protocol.PASS)
+	if pts[0].Pass != core.PASS {
+		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, core.PASS)
 	}
 	if pts[1].Resp != 0.0 {
 		t.Errorf("pts[1].Resp = %f, want 0.0", pts[1].Resp)
@@ -144,7 +143,7 @@ func TestSSLPluginExtractPoints(t *testing.T) {
 }
 
 func TestSSLPluginExtractPointsNil(t *testing.T) {
-	p, _ := registry.ByName("ssl")
+	p, _ := core.ByName("ssl")
 	pts := p.ExtractPoints(nil)
 	if pts != nil {
 		t.Errorf("ExtractPoints(nil) = %v, want nil", pts)
@@ -152,7 +151,7 @@ func TestSSLPluginExtractPointsNil(t *testing.T) {
 }
 
 func TestSSLPluginExtractDurationPoints(t *testing.T) {
-	p, _ := registry.ByName("ssl")
+	p, _ := core.ByName("ssl")
 	pts := p.ExtractDurationPoints([]SSLCheck{})
 	if pts != nil {
 		t.Errorf("ExtractDurationPoints should return nil for SSL")
@@ -160,11 +159,11 @@ func TestSSLPluginExtractDurationPoints(t *testing.T) {
 }
 
 func TestSSLPluginLatestRecent(t *testing.T) {
-	p, _ := registry.ByName("ssl")
+	p, _ := core.ByName("ssl")
 	history := []SSLCheck{
-		{ID: 1, Pass: protocol.FAIL},
-		{ID: 2, Pass: protocol.PASS},
-		{ID: 3, Pass: protocol.DEGRADED},
+		{ID: 1, Pass: core.FAIL},
+		{ID: 2, Pass: core.PASS},
+		{ID: 3, Pass: core.DEGRADED},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -182,7 +181,7 @@ func TestSSLPluginLatestRecent(t *testing.T) {
 }
 
 func TestSSLPluginLatestRecentEmpty(t *testing.T) {
-	p, _ := registry.ByName("ssl")
+	p, _ := core.ByName("ssl")
 	latest, recent, count := p.LatestRecent([]SSLCheck{}, 15)
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
@@ -190,7 +189,7 @@ func TestSSLPluginLatestRecentEmpty(t *testing.T) {
 }
 
 func TestSSLPluginTemplateNames(t *testing.T) {
-	p, _ := registry.ByName("ssl")
+	p, _ := core.ByName("ssl")
 	row, body := p.TemplateNames()
 	if row != "check_ssl_row" {
 		t.Errorf("row template = %q, want %q", row, "check_ssl_row")

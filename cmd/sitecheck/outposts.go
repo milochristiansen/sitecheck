@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sitecheck/core"
 	"strings"
 
 	"github.com/milochristiansen/lua"
@@ -75,15 +76,12 @@ func loadOutpostDef(slug, path string) (OutpostDef, error) {
 	}
 
 	// Call meta() if it exists.
-	l.Push("meta")
-	t := l.GetTableRaw(lua.GlobalsIndex)
-	if t == lua.TypNil || t != lua.TypFunction {
-		l.Pop(1)
-		return def, nil
-	}
-
-	if err := l.Protect(func() { l.Call(0, 1) }); err != nil {
+	ok, err := core.CallMeta(l)
+	if err != nil {
 		return OutpostDef{}, fmt.Errorf("call meta() for %s: %w", slug, err)
+	}
+	if !ok {
+		return def, nil
 	}
 
 	if l.TypeOf(-1) == lua.TypTable {

@@ -1,4 +1,4 @@
-// Package systemd implements registry.CheckPlugin for systemd service checks.
+// Package systemd implements core.CheckPlugin for systemd service checks.
 package systemd
 
 import (
@@ -12,13 +12,12 @@ import (
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/milochristiansen/lua"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 // --- Result struct -----------------------------------------------------------
 
-// SystemdResult implements protocol.CheckResult for systemd service checks.
+// SystemdResult implements core.CheckResult for systemd service checks.
 type SystemdResult struct {
 	Pass           int
 	FailReason     string
@@ -31,10 +30,10 @@ type SystemdResult struct {
 	Error          string
 }
 
-func (r *SystemdResult) CheckType() string       { return "systemd" }
+func (r *SystemdResult) CheckType() string        { return "systemd" }
 func (r *SystemdResult) CheckPass() int           { return r.Pass }
-func (r *SystemdResult) CheckFailReason() string   { return r.FailReason }
-func (r *SystemdResult) CheckResponseMS() float64  { return r.ResponseTimeMS }
+func (r *SystemdResult) CheckFailReason() string  { return r.FailReason }
+func (r *SystemdResult) CheckResponseMS() float64 { return r.ResponseTimeMS }
 
 // --- DB row struct -----------------------------------------------------------
 
@@ -184,19 +183,19 @@ func (p *impl) QuerySince(db *sql.DB, slug, outpostSlug string, since time.Time)
 
 // --- Common field access -----------------------------------------------------
 
-func (p *impl) ExtractPoints(history interface{}) []registry.CheckPoint {
+func (p *impl) ExtractPoints(history interface{}) []core.CheckPoint {
 	h, ok := history.([]SystemdCheck)
 	if !ok {
 		return nil
 	}
-	pts := make([]registry.CheckPoint, len(h))
+	pts := make([]core.CheckPoint, len(h))
 	for i, c := range h {
-		pts[i] = registry.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
+		pts[i] = core.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
 	}
 	return pts
 }
 
-func (p *impl) ExtractDurationPoints(history interface{}) []registry.CheckPoint {
+func (p *impl) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 	return nil
 }
 
@@ -253,91 +252,18 @@ func dbusValueInt(v interface{}) int {
 	return 0
 }
 
-// pushStr pushes a string to the Lua stack, or nil if empty.
-func pushStr(l *lua.State, s string) {
-	if s == "" {
-		l.Push(nil)
-	} else {
-		l.Push(s)
-	}
-}
-
-// readIntOpt reads an integer option from a Lua table.
-func readIntOpt(l *lua.State, tableIdx int, key string, def int) int {
-	l.Push(key)
-	t := l.GetTableRaw(tableIdx)
-	if t == lua.TypNil {
-		return def
-	}
-	switch n := l.GetRaw(-1).(type) {
-	case int64:
-		l.Pop(1)
-		return int(n)
-	case float64:
-		l.Pop(1)
-		return int(n)
-	}
-	l.Pop(1)
-	return def
-}
-
 func pushSystemdResult(l *lua.State, r *SystemdResult) {
-	l.Push(r)
-	l.NewTable(0, 2)
-
-	l.Push("__index")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*SystemdResult)
-		switch l.ToString(2) {
-		case "Pass":
-			l.Push(int64(r.Pass))
-		case "FailReason":
-			pushStr(l, r.FailReason)
-		case "ServiceName":
-			l.Push(r.ServiceName)
-		case "ActiveState":
-			pushStr(l, r.ActiveState)
-		case "SubState":
-			pushStr(l, r.SubState)
-		case "LoadState":
-			pushStr(l, r.LoadState)
-		case "MainPID":
-			l.Push(int64(r.MainPID))
-		case "ResponseTimeMS":
-			l.Push(r.ResponseTimeMS)
-		case "Error":
-			pushStr(l, r.Error)
-		default:
-			l.Push(nil)
-		}
-		return 1
+	core.PushResultUserData(l, r, map[string]core.LuaField{
+		"Pass":           {Get: func(l *lua.State) { l.Push(int64(r.Pass)) }, Set: func(l *lua.State) { r.Pass = int(l.ToInt(3)) }},
+		"FailReason":     {Get: func(l *lua.State) { l.Push(r.FailReason) }, Set: func(l *lua.State) { r.FailReason = l.ToString(3) }},
+		"ServiceName":    {Get: func(l *lua.State) { l.Push(r.ServiceName) }, Set: func(l *lua.State) { r.ServiceName = l.ToString(3) }},
+		"ActiveState":    {Get: func(l *lua.State) { l.Push(r.ActiveState) }, Set: func(l *lua.State) { r.ActiveState = l.ToString(3) }},
+		"SubState":       {Get: func(l *lua.State) { l.Push(r.SubState) }, Set: func(l *lua.State) { r.SubState = l.ToString(3) }},
+		"LoadState":      {Get: func(l *lua.State) { l.Push(r.LoadState) }, Set: func(l *lua.State) { r.LoadState = l.ToString(3) }},
+		"MainPID":        {Get: func(l *lua.State) { l.Push(int64(r.MainPID)) }},
+		"ResponseTimeMS": {Get: func(l *lua.State) { l.Push(r.ResponseTimeMS) }},
+		"Error":          {Get: func(l *lua.State) { l.Push(r.Error) }, Set: func(l *lua.State) { r.Error = l.ToString(3) }},
 	})
-	l.SetTableRaw(-3)
-
-	l.Push("__newindex")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*SystemdResult)
-		switch l.ToString(2) {
-		case "Pass":
-			r.Pass = int(l.ToInt(3))
-		case "FailReason":
-			r.FailReason = l.ToString(3)
-		case "ServiceName":
-			r.ServiceName = l.ToString(3)
-		case "ActiveState":
-			r.ActiveState = l.ToString(3)
-		case "SubState":
-			r.SubState = l.ToString(3)
-		case "LoadState":
-			r.LoadState = l.ToString(3)
-		case "Error":
-			r.Error = l.ToString(3)
-		}
-		return 0
-	})
-	l.SetTableRaw(-3)
-
-	l.SetMetaTable(-2)
 }
 
 func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {
@@ -346,11 +272,11 @@ func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {
 
 		timeout := defaultTimeout
 		if !l.IsNil(2) && l.TypeOf(2) == lua.TypTable {
-			timeout = readIntOpt(l, 2, "timeout", defaultTimeout)
+			timeout = core.ReadIntOpt(l, 2, "timeout", defaultTimeout)
 		}
 
 		r := &SystemdResult{
-			Pass:        protocol.FAIL,
+			Pass:        core.FAIL,
 			ServiceName: serviceName,
 		}
 
@@ -369,7 +295,7 @@ func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {
 		// Query unit properties via D-Bus.
 		props, err := conn.GetUnitPropertiesContext(ctx, serviceName)
 		elapsed := time.Since(start)
-		r.ResponseTimeMS = float64(elapsed.Microseconds()) / 1000.0
+		r.ResponseTimeMS = elapsed.Seconds() * 1000
 
 		if err != nil {
 			r.Error = err.Error()
@@ -398,9 +324,9 @@ func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {
 
 // --- Wire dispatch -----------------------------------------------------------
 
-func (p *impl) DispatchWireResult(res registry.ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult {
+func (p *impl) DispatchWireResult(res core.ResourceMeta, cr core.CheckResult, elapsed time.Duration) core.WireResult {
 	r := cr.(*SystemdResult)
-	return protocol.NewWireResult(
+	return core.NewWireResult(
 		res.Slug, res.Name, res.Desc,
 		"systemd", r.Pass, r.FailReason,
 		r.ResponseTimeMS, elapsed.Milliseconds(),
@@ -415,10 +341,8 @@ func (p *impl) TemplateNames() (string, string) {
 	return "check_systemd_row", "check_systemd_body"
 }
 
-
-
 // --- Registration ------------------------------------------------------------
 
 func init() {
-	registry.Register(&impl{})
+	core.Register(&impl{})
 }

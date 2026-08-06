@@ -1,6 +1,4 @@
-// Package registry defines the CheckPlugin interface and global plugin registry.
-// Each check type implements CheckPlugin and calls Register in its init().
-package registry
+package core
 
 import (
 	"database/sql"
@@ -9,7 +7,6 @@ import (
 	"time"
 
 	"github.com/milochristiansen/lua"
-	"sitecheck/protocol"
 )
 
 // CheckPoint is a common data point used by sparklines, line charts, and uptime
@@ -21,7 +18,7 @@ type CheckPoint struct {
 }
 
 // ResourceMeta carries the metadata fields from a resource that DispatchWireResult
-// needs to build a protocol.WireResult.
+// needs to build a WireResult.
 type ResourceMeta struct {
 	Slug           string
 	Name           string
@@ -57,7 +54,7 @@ type CheckPlugin interface {
 	RegisterLua(l *lua.State, defaultTimeout int)
 
 	// Scoutpost: wire dispatch from Lua result to WireResult.
-	DispatchWireResult(res ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult
+	DispatchWireResult(res ResourceMeta, cr CheckResult, elapsed time.Duration) WireResult
 
 	// Templates.
 	TemplateNames() (row, body string)

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"html/template"
 	"time"
+
+	"sitecheck/core"
 )
 
 // tmplFuncs returns the template.FuncMap used by all templates.
@@ -66,7 +68,7 @@ func statusClass(pass int) string {
 		return "degraded"
 	case 0:
 		return "fail"
-	case -1:
+	case core.UNKNOWN:
 		return "error"
 	default:
 		return "unknown"
@@ -90,13 +92,13 @@ func dict(values ...interface{}) (map[string]interface{}, error) {
 }
 
 // calcUptimePct returns the uptime percentage (pass or degraded / total) for a set of points.
-func calcUptimePct(pts []checkPoint) float64 {
+func calcUptimePct(pts []core.CheckPoint) float64 {
 	if len(pts) == 0 {
 		return 0
 	}
 	var ok int
 	for _, p := range pts {
-		if p.pass == 2 || p.pass == 1 {
+		if p.Pass == 2 || p.Pass == 1 {
 			ok++
 		}
 	}

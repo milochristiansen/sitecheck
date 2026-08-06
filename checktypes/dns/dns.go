@@ -1,4 +1,4 @@
-// Package dns implements registry.CheckPlugin for DNS resolution checks.
+// Package dns implements core.CheckPlugin for DNS resolution checks.
 package dns
 
 import (
@@ -10,21 +10,20 @@ import (
 	"time"
 
 	"github.com/milochristiansen/lua"
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
-// DNSResult is the result of a DNS lookup check. It implements protocol.CheckResult.
+// DNSResult is the result of a DNS lookup check. It implements core.CheckResult.
 type DNSResult struct {
 	Pass           int
 	FailReason     string
 	Host           string
-	IPs    string
+	IPs            string
 	ResponseTimeMS float64
 	Error          string
 }
 
-func (r *DNSResult) CheckType() string       { return "dns" }
+func (r *DNSResult) CheckType() string        { return "dns" }
 func (r *DNSResult) CheckPass() int           { return r.Pass }
 func (r *DNSResult) CheckFailReason() string  { return r.FailReason }
 func (r *DNSResult) CheckResponseMS() float64 { return r.ResponseTimeMS }
@@ -39,7 +38,7 @@ type DNSCheck struct {
 	Pass           int
 	ResponseTimeMS float64
 	Host           string
-	IPs    string
+	IPs            string
 	Error          string
 }
 
@@ -146,19 +145,19 @@ func (impl) QuerySince(db *sql.DB, slug, outpostSlug string, since time.Time) (i
 	return checks, nil
 }
 
-func (impl) ExtractPoints(history interface{}) []registry.CheckPoint {
+func (impl) ExtractPoints(history interface{}) []core.CheckPoint {
 	h, ok := history.([]DNSCheck)
 	if !ok {
 		return nil
 	}
-	pts := make([]registry.CheckPoint, len(h))
+	pts := make([]core.CheckPoint, len(h))
 	for i, c := range h {
-		pts[i] = registry.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
+		pts[i] = core.CheckPoint{Pass: c.Pass, Resp: c.ResponseTimeMS, TS: c.Timestamp}
 	}
 	return pts
 }
 
-func (impl) ExtractDurationPoints(history interface{}) []registry.CheckPoint {
+func (impl) ExtractDurationPoints(history interface{}) []core.CheckPoint {
 	return nil
 }
 
@@ -188,11 +187,11 @@ func (impl) RegisterLua(l *lua.State, defaultTimeout int) {
 
 		timeout := defaultTimeout
 		if !l.IsNil(2) && l.TypeOf(2) == lua.TypTable {
-			timeout = readIntOpt(l, 2, "timeout", defaultTimeout)
+			timeout = core.ReadIntOpt(l, 2, "timeout", defaultTimeout)
 		}
 
 		r := &DNSResult{
-			Pass: protocol.FAIL,
+			Pass: core.FAIL,
 			Host: host,
 		}
 
@@ -202,7 +201,7 @@ func (impl) RegisterLua(l *lua.State, defaultTimeout int) {
 		start := time.Now()
 		addrs, err := net.DefaultResolver.LookupHost(ctx, host)
 		elapsed := time.Since(start)
-		r.ResponseTimeMS = float64(elapsed.Microseconds()) / 1000.0
+		r.ResponseTimeMS = elapsed.Seconds() * 1000
 
 		if err != nil {
 			r.Error = err.Error()
@@ -225,86 +224,19 @@ func (impl) RegisterLua(l *lua.State, defaultTimeout int) {
 }
 
 func pushDNSResult(l *lua.State, r *DNSResult) {
-	l.Push(r)
-	l.NewTable(0, 2)
-
-	l.Push("__index")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*DNSResult)
-		switch l.ToString(2) {
-		case "Pass":
-			l.Push(int64(r.Pass))
-		case "FailReason":
-			pushStr(l, r.FailReason)
-		case "Host":
-			l.Push(r.Host)
-		case "IPs":
-			pushStr(l, r.IPs)
-		case "ResponseTimeMS":
-			l.Push(r.ResponseTimeMS)
-		case "Error":
-			pushStr(l, r.Error)
-		default:
-			l.Push(nil)
-		}
-		return 1
+	core.PushResultUserData(l, r, map[string]core.LuaField{
+		"Pass":           {Get: func(l *lua.State) { l.Push(int64(r.Pass)) }, Set: func(l *lua.State) { r.Pass = int(l.ToInt(3)) }},
+		"FailReason":     {Get: func(l *lua.State) { l.Push(r.FailReason) }, Set: func(l *lua.State) { r.FailReason = l.ToString(3) }},
+		"Host":           {Get: func(l *lua.State) { l.Push(r.Host) }, Set: func(l *lua.State) { r.Host = l.ToString(3) }},
+		"IPs":            {Get: func(l *lua.State) { l.Push(r.IPs) }, Set: func(l *lua.State) { r.IPs = l.ToString(3) }},
+		"ResponseTimeMS": {Get: func(l *lua.State) { l.Push(r.ResponseTimeMS) }},
+		"Error":          {Get: func(l *lua.State) { l.Push(r.Error) }, Set: func(l *lua.State) { r.Error = l.ToString(3) }},
 	})
-	l.SetTableRaw(-3)
-
-	l.Push("__newindex")
-	l.Push(func(l *lua.State) int {
-		r := l.ToUser(1).(*DNSResult)
-		switch l.ToString(2) {
-		case "Pass":
-			r.Pass = int(l.ToInt(3))
-		case "FailReason":
-			r.FailReason = l.ToString(3)
-		case "Host":
-			r.Host = l.ToString(3)
-		case "IPs":
-			r.IPs = l.ToString(3)
-		case "Error":
-			r.Error = l.ToString(3)
-		}
-		return 0
-	})
-	l.SetTableRaw(-3)
-
-	l.SetMetaTable(-2)
 }
 
-// Lua utility helpers.
-func readIntOpt(l *lua.State, tableIdx int, key string, def int) int {
-	abs := l.AbsIndex(tableIdx)
-	l.Push(key)
-	t := l.GetTableRaw(abs)
-	if t == lua.TypNil {
-		l.Pop(1)
-		return def
-	}
-	switch n := l.GetRaw(-1).(type) {
-	case int64:
-		l.Pop(1)
-		return int(n)
-	case float64:
-		l.Pop(1)
-		return int(n)
-	}
-	l.Pop(1)
-	return def
-}
-
-func pushStr(l *lua.State, s string) {
-	if s == "" {
-		l.Push(nil)
-	} else {
-		l.Push(s)
-	}
-}
-
-func (impl) DispatchWireResult(res registry.ResourceMeta, cr protocol.CheckResult, elapsed time.Duration) protocol.WireResult {
+func (impl) DispatchWireResult(res core.ResourceMeta, cr core.CheckResult, elapsed time.Duration) core.WireResult {
 	r := cr.(*DNSResult)
-	return protocol.NewWireResult(
+	return core.NewWireResult(
 		res.Slug, res.Name, res.Desc,
 		"dns",
 		r.Pass, r.FailReason,
@@ -319,8 +251,6 @@ func (impl) TemplateNames() (string, string) {
 	return "check_dns_row", "check_dns_body"
 }
 
-
-
 func init() {
-	registry.Register(impl{})
+	core.Register(impl{})
 }

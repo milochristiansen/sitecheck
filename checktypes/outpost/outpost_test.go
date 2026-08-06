@@ -5,13 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"sitecheck/checktypes/registry"
-	"sitecheck/protocol"
+	"sitecheck/core"
 )
 
 func TestOutpostResultInterface(t *testing.T) {
 	r := &OutpostResult{
-		Pass:           protocol.PASS,
+		Pass:           core.PASS,
 		FailReason:     "",
 		ResponseTimeMS: 42.5,
 		Error:          "",
@@ -22,8 +21,8 @@ func TestOutpostResultInterface(t *testing.T) {
 	if r.CheckType() != "outpost" {
 		t.Errorf("CheckType = %q, want %q", r.CheckType(), "outpost")
 	}
-	if r.CheckPass() != protocol.PASS {
-		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), protocol.PASS)
+	if r.CheckPass() != core.PASS {
+		t.Errorf("CheckPass = %d, want %d", r.CheckPass(), core.PASS)
 	}
 	if r.CheckFailReason() != "" {
 		t.Errorf("CheckFailReason = %q, want empty", r.CheckFailReason())
@@ -34,7 +33,7 @@ func TestOutpostResultInterface(t *testing.T) {
 }
 
 func TestOutpostPluginRegistration(t *testing.T) {
-	p, ok := registry.ByName("outpost")
+	p, ok := core.ByName("outpost")
 	if !ok {
 		t.Fatal("Outpost plugin not registered -- did init() run?")
 	}
@@ -47,7 +46,7 @@ func TestOutpostPluginRegistration(t *testing.T) {
 }
 
 func TestOutpostPluginCreateTableDDL(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	ddl := p.CreateTableDDL()
 	if len(ddl) != 1 {
 		t.Fatalf("CreateTableDDL returned %d statements, want 1", len(ddl))
@@ -58,7 +57,7 @@ func TestOutpostPluginCreateTableDDL(t *testing.T) {
 }
 
 func TestOutpostPluginCreateIndexDDL(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	ddl := p.CreateIndexDDL()
 	if len(ddl) != 1 {
 		t.Fatalf("CreateIndexDDL returned %d statements, want 1", len(ddl))
@@ -69,8 +68,8 @@ func TestOutpostPluginCreateIndexDDL(t *testing.T) {
 }
 
 func TestOutpostPluginDispatchWireResult(t *testing.T) {
-	p, _ := registry.ByName("outpost")
-	meta := registry.ResourceMeta{
+	p, _ := core.ByName("outpost")
+	meta := core.ResourceMeta{
 		Slug:           "test-outpost",
 		Name:           "Test Outpost",
 		Desc:           "An outpost test",
@@ -79,7 +78,7 @@ func TestOutpostPluginDispatchWireResult(t *testing.T) {
 		NotifyFail:     true,
 	}
 	cr := &OutpostResult{
-		Pass:           protocol.DEGRADED,
+		Pass:           core.DEGRADED,
 		FailReason:     "partial failure",
 		ResponseTimeMS: 200.0,
 		Error:          "",
@@ -123,17 +122,17 @@ func TestOutpostPluginDispatchWireResult(t *testing.T) {
 }
 
 func TestOutpostPluginExtractPoints(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	history := []OutpostCheck{
-		{Pass: protocol.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
-		{Pass: protocol.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
+		{Pass: core.PASS, ResponseTimeMS: 10.0, Timestamp: "2024-01-01T00:00:00Z"},
+		{Pass: core.FAIL, ResponseTimeMS: 0.0, Timestamp: "2024-01-01T00:01:00Z"},
 	}
 	pts := p.ExtractPoints(history)
 	if len(pts) != 2 {
 		t.Fatalf("ExtractPoints = %d points, want 2", len(pts))
 	}
-	if pts[0].Pass != protocol.PASS {
-		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, protocol.PASS)
+	if pts[0].Pass != core.PASS {
+		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, core.PASS)
 	}
 	if pts[1].Resp != 0.0 {
 		t.Errorf("pts[1].Resp = %f, want 0.0", pts[1].Resp)
@@ -141,7 +140,7 @@ func TestOutpostPluginExtractPoints(t *testing.T) {
 }
 
 func TestOutpostPluginExtractPointsNil(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	pts := p.ExtractPoints(nil)
 	if pts != nil {
 		t.Errorf("ExtractPoints(nil) = %v, want nil", pts)
@@ -149,10 +148,10 @@ func TestOutpostPluginExtractPointsNil(t *testing.T) {
 }
 
 func TestOutpostPluginExtractDurationPoints(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	history := []OutpostCheck{
-		{DurationMS: 100, Pass: protocol.PASS, Timestamp: "2024-01-01T00:00:00Z"},
-		{DurationMS: 200, Pass: protocol.FAIL, Timestamp: "2024-01-01T00:01:00Z"},
+		{DurationMS: 100, Pass: core.PASS, Timestamp: "2024-01-01T00:00:00Z"},
+		{DurationMS: 200, Pass: core.FAIL, Timestamp: "2024-01-01T00:01:00Z"},
 	}
 	pts := p.ExtractDurationPoints(history)
 	if len(pts) != 2 {
@@ -161,8 +160,8 @@ func TestOutpostPluginExtractDurationPoints(t *testing.T) {
 	if pts[0].Resp != 100.0 {
 		t.Errorf("pts[0].Resp = %f, want 100.0", pts[0].Resp)
 	}
-	if pts[0].Pass != protocol.PASS {
-		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, protocol.PASS)
+	if pts[0].Pass != core.PASS {
+		t.Errorf("pts[0].Pass = %d, want %d", pts[0].Pass, core.PASS)
 	}
 	if pts[1].Resp != 200.0 {
 		t.Errorf("pts[1].Resp = %f, want 200.0", pts[1].Resp)
@@ -170,7 +169,7 @@ func TestOutpostPluginExtractDurationPoints(t *testing.T) {
 }
 
 func TestOutpostPluginExtractDurationPointsNil(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	pts := p.ExtractDurationPoints(nil)
 	if pts != nil {
 		t.Errorf("ExtractDurationPoints(nil) = %v, want nil", pts)
@@ -178,11 +177,11 @@ func TestOutpostPluginExtractDurationPointsNil(t *testing.T) {
 }
 
 func TestOutpostPluginLatestRecentMulti(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	history := []OutpostCheck{
-		{ID: 1, Pass: protocol.FAIL, ResponseTimeMS: 5.0},
-		{ID: 2, Pass: protocol.PASS, ResponseTimeMS: 15.0},
-		{ID: 3, Pass: protocol.DEGRADED, ResponseTimeMS: 10.0},
+		{ID: 1, Pass: core.FAIL, ResponseTimeMS: 5.0},
+		{ID: 2, Pass: core.PASS, ResponseTimeMS: 15.0},
+		{ID: 3, Pass: core.DEGRADED, ResponseTimeMS: 10.0},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -200,7 +199,7 @@ func TestOutpostPluginLatestRecentMulti(t *testing.T) {
 }
 
 func TestOutpostPluginLatestRecentEmpty(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	latest, recent, count := p.LatestRecent([]OutpostCheck{}, 15)
 	if latest != nil || recent != nil || count != 0 {
 		t.Errorf("Expected nil,nil,0 for empty history")
@@ -208,9 +207,9 @@ func TestOutpostPluginLatestRecentEmpty(t *testing.T) {
 }
 
 func TestOutpostPluginLatestRecentSingle(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	history := []OutpostCheck{
-		{ID: 42, Pass: protocol.PASS, ResponseTimeMS: 7.5},
+		{ID: 42, Pass: core.PASS, ResponseTimeMS: 7.5},
 	}
 	latest, recent, count := p.LatestRecent(history, 15)
 	if latest == nil {
@@ -229,7 +228,7 @@ func TestOutpostPluginLatestRecentSingle(t *testing.T) {
 }
 
 func TestOutpostPluginTemplateNames(t *testing.T) {
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	row, body := p.TemplateNames()
 	if row != "check_outpost_row" {
 		t.Errorf("row template = %q, want %q", row, "check_outpost_row")
@@ -241,13 +240,13 @@ func TestOutpostPluginTemplateNames(t *testing.T) {
 
 func TestOutpostPluginRegisterLua(t *testing.T) {
 	// RegisterLua is a documented no-op — just verify it doesn't panic.
-	p, _ := registry.ByName("outpost")
+	p, _ := core.ByName("outpost")
 	p.RegisterLua(nil, 30)
 }
 
 func TestOutpostResultCheckResponseMS(t *testing.T) {
 	r := &OutpostResult{
-		Pass:           protocol.FAIL,
+		Pass:           core.FAIL,
 		FailReason:     "timeout",
 		ResponseTimeMS: 0,
 	}
@@ -263,7 +262,7 @@ func TestOutpostCheckFields(t *testing.T) {
 		OutpostSlug:    "outpost-1",
 		Timestamp:      "2024-06-15T12:00:00Z",
 		DurationMS:     250,
-		Pass:           protocol.PASS,
+		Pass:           core.PASS,
 		ResponseTimeMS: 125.0,
 		CheckCount:     10,
 		FailCount:      2,
@@ -294,7 +293,7 @@ func TestOutpostCheckFields(t *testing.T) {
 
 func TestOutpostResultJSON(t *testing.T) {
 	r := OutpostResult{
-		Pass:           protocol.FAIL,
+		Pass:           core.FAIL,
 		FailReason:     "connection refused",
 		ResponseTimeMS: 0.5,
 		Error:          "dial tcp: connection refused",
@@ -310,8 +309,8 @@ func TestOutpostResultJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &r2); err != nil {
 		t.Fatalf("Unmarshal OutpostResult: %v", err)
 	}
-	if r2.Pass != protocol.FAIL {
-		t.Errorf("Pass = %d, want %d", r2.Pass, protocol.FAIL)
+	if r2.Pass != core.FAIL {
+		t.Errorf("Pass = %d, want %d", r2.Pass, core.FAIL)
 	}
 	if r2.FailReason != "connection refused" {
 		t.Errorf("FailReason = %q, want %q", r2.FailReason, "connection refused")
