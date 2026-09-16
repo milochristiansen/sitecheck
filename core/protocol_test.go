@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -195,5 +196,40 @@ func TestIsKnownWireVersion(t *testing.T) {
 func TestWireVersionFormat(t *testing.T) {
 	if WireVersion != "1.1" {
 		t.Errorf("WireVersion = %q, want %q", WireVersion, "1.1")
+	}
+}
+
+// TestReadResultsLargeLine guards against the regression where ReadResults used
+// a bufio.Scanner with a 64 KiB token limit. An HTTP check embeds up to 64 KiB
+// of body, pushing a JSON line past that limit; the scanner stopped reading,
+// leaving the outpost blocked writing to a full stdout pipe and the core stuck
+// in cmd.Wait forever.
+func TestReadResultsLargeLine(t *testing.T) {
+	body := strings.Repeat("x", 256*1024)
+	wr := NewWireResult(
+		"big", "Big Body", "payload larger than the old scanner limit",
+		"http", PASS, "", 1.0, 2, "",
+		map[string]interface{}{"body": body},
+		true, true, true,
+	)
+
+	var buf bytes.Buffer
+	if err := WriteResult(&buf, wr); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+	if buf.Len() <= 64*1024 {
+		t.Fatalf("test payload is only %d bytes; want > 64 KiB", buf.Len())
+	}
+
+	got := <-ReadResults(&buf)
+	if got.Slug != "big" {
+		t.Fatalf("Slug = %q, want %q", got.Slug, "big")
+	}
+	var data struct{ Body string }
+	if err := json.Unmarshal(got.Data, &data); err != nil {
+		t.Fatalf("unmarshal data: %v", err)
+	}
+	if data.Body != body {
+		t.Fatalf("body round-trip mismatch: got %d bytes, want %d", len(data.Body), len(body))
 	}
 }

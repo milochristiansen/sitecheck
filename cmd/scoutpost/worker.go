@@ -60,34 +60,49 @@ func NewPool(n int, defaultTimeout int) *Pool {
 		results:        make(chan core.WireResult),
 		defaultTimeout: defaultTimeout,
 	}
-	for range n {
+	for i := range n {
+		id := i
 		p.wg.Add(1)
 		go func() {
 			defer p.wg.Done()
+			debugf("worker[%d]: starting", id)
 			l, err := lmods.NewState(defaultTimeout)
 			if err != nil {
+				debugf("worker[%d]: create lua state failed: %v", id, err)
 				p.results <- luaErrorResult(Resource{}, fmt.Sprintf("create lua state: %v", err), 0)
 				return
 			}
+			debugf("worker[%d]: ready", id)
 			for job := range p.jobs {
+				debugf("worker[%d]: got job slug=%q", id, job.Resource.Slug)
 				if job.Resource.Skip {
+					debugf("worker[%d]: slug=%q skipped before execution", id, job.Resource.Slug)
 					continue
 				}
 				// Load and execute the Lua script file.
 				if err := lmods.ExecuteFile(l, job.Resource.ScriptPath); err != nil {
+					debugf("worker[%d]: execute %q failed: %v", id, job.Resource.ScriptPath, err)
 					p.results <- luaErrorResult(job.Resource, err.Error(), 0)
 					continue
 				}
+				debugf("worker[%d]: loaded script slug=%q", id, job.Resource.Slug)
 				// Run meta() to populate resource fields.
 				if err := PopulateMeta(l, &job.Resource); err != nil {
+					debugf("worker[%d]: meta() slug=%q failed: %v", id, job.Resource.Slug, err)
 					p.results <- luaErrorResult(job.Resource, err.Error(), 0)
 					continue
 				}
+				debugf("worker[%d]: meta slug=%q name=%q skipped=%t", id, job.Resource.Slug, job.Resource.Name, job.Resource.Skip)
 				if job.Resource.Skip {
+					debugf("worker[%d]: slug=%q skipped by meta", id, job.Resource.Slug)
 					continue
 				}
-				p.results <- RunCheck(l, job.Resource)
+				wr := RunCheck(l, job.Resource)
+				debugf("worker[%d]: check slug=%q done pass=%d elapsed_ms=%d err=%q",
+					id, wr.Slug, wr.Pass, wr.ElapsedMS, wr.Error)
+				p.results <- wr
 			}
+			debugf("worker[%d]: exiting", id)
 		}()
 	}
 	return p
@@ -184,11 +199,13 @@ func RunCheck(l *lua.State, res Resource) core.WireResult {
 		return luaErrorResult(res, fmt.Sprintf("resource %s: check() function not found", res.Slug), 0)
 	}
 
+	debugf("check %s: invoking check()", res.Slug)
 	start := time.Now()
 	err := l.Protect(func() {
 		l.Call(0, 1)
 	})
 	elapsed := time.Since(start)
+	debugf("check %s: check() returned after %s (err=%v)", res.Slug, elapsed.Round(time.Millisecond), err)
 
 	if err != nil {
 		l.Pop(1)
@@ -208,6 +225,7 @@ func RunCheck(l *lua.State, res Resource) core.WireResult {
 		return luaErrorResult(res, fmt.Sprintf("check() result type %T does not implement CheckResult", raw), elapsed.Milliseconds())
 	}
 
+	debugf("check %s: dispatching type=%q", res.Slug, cr.CheckType())
 	p, ok := core.ByName(cr.CheckType())
 	if !ok {
 		return luaErrorResult(res, fmt.Sprintf("unknown check type %q", cr.CheckType()), elapsed.Milliseconds())

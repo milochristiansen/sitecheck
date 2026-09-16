@@ -6,9 +6,11 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 )
 
 // --- Pass level constants ---------------------------------------------------
@@ -123,22 +125,33 @@ func WriteResult(w io.Writer, r WireResult) error {
 // ReadResults reads newline-delimited JSON WireResult objects from r, sending
 // each on the returned channel. The channel is closed when the reader reaches
 // EOF or encounters an error.
+//
+// Lines are read with bufio.Reader.ReadBytes rather than bufio.Scanner: a
+// Scanner enforces a fixed 64 KiB maximum token size and, worse, stops reading
+// when a line exceeds it. A check payload containing a large HTTP body easily
+// tops 64 KiB, and abandoning the pipe leaves the outpost blocked writing to a
+// full stdout pipe while cmd.Wait waits forever. ReadBytes has no such limit.
 func ReadResults(r io.Reader) <-chan WireResult {
 	ch := make(chan WireResult)
 	go func() {
 		defer close(ch)
-		scanner := bufio.NewScanner(r)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
+		br := bufio.NewReader(r)
+		for {
+			line, err := br.ReadBytes('\n')
+			line = bytes.TrimRight(line, "\r\n")
+			if len(line) > 0 {
+				var wr WireResult
+				if json.Unmarshal(line, &wr) == nil {
+					ch <- wr
+				}
+				// Unparseable lines are skipped; the outpost should never send them.
 			}
-			var wr WireResult
-			if err := json.Unmarshal(line, &wr); err != nil {
-				// Skip unparseable lines; the outpost should never send them.
-				continue
+			if err != nil {
+				if err != io.EOF {
+					fmt.Fprintf(os.Stderr, "ReadResults: read error: %v\n", err)
+				}
+				return
 			}
-			ch <- wr
 		}
 	}()
 	return ch

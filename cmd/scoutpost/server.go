@@ -14,11 +14,13 @@ import (
 // worker pool, and streams JSON-lines results via chunked transfer encoding.
 func handler(cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		debugf("server: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if cfg.Token != "" && bearerToken(r.Header.Get("Authorization")) != cfg.Token {
+			debugf("server: unauthorized request")
 			http.Error(w, "unauthorized: invalid bearer token", http.StatusUnauthorized)
 			return
 		}
@@ -26,9 +28,11 @@ func handler(cfg *Config) http.HandlerFunc {
 		resources, err := ScanResources(cfg.ResourcesDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
+			debugf("server: scan error: %v", err)
 			http.Error(w, fmt.Sprintf("scan error: %v", err), http.StatusInternalServerError)
 			return
 		}
+		debugf("server: scanned %d resource(s)", len(resources))
 
 		if len(resources) == 0 {
 			w.Header().Set("Content-Type", "application/json")
@@ -43,7 +47,9 @@ func handler(cfg *Config) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		debugf("server: streaming results")
 		runChecks(cfg, resources, w, flusher.Flush)
+		debugf("server: result stream finished")
 	}
 }
 
