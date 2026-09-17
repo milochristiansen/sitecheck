@@ -97,7 +97,7 @@ func NewPool(n int, defaultTimeout int) *Pool {
 					debugf("worker[%d]: slug=%q skipped by meta", id, job.Resource.Slug)
 					continue
 				}
-				wr := RunCheck(l, job.Resource)
+				wr := RunCheckWithRetry(l, job.Resource)
 				debugf("worker[%d]: check slug=%q done pass=%d elapsed_ms=%d err=%q",
 					id, wr.Slug, wr.Pass, wr.ElapsedMS, wr.Error)
 				p.results <- wr
@@ -190,8 +190,10 @@ func PopulateMeta(l *lua.State, res *Resource) error {
 	return nil
 }
 
-// RunCheck executes a script's check() function and returns a core.WireResult.
-func RunCheck(l *lua.State, res Resource) core.WireResult {
+// runCheck executes a script's check() function exactly once and returns a
+// core.WireResult. It is the single-attempt primitive; callers that want the
+// outpost's normal retry-on-failure behaviour should use RunCheck instead.
+func runCheck(l *lua.State, res Resource) core.WireResult {
 	l.Push("check")
 	t := l.GetTableRaw(lua.GlobalsIndex)
 	if t == lua.TypNil || t != lua.TypFunction {
@@ -234,6 +236,38 @@ func RunCheck(l *lua.State, res Resource) core.WireResult {
 	wr.Sites = res.Sites
 	wr.Version = core.WireVersion
 	return wr
+}
+
+// checkPassed reports whether wr is a result the rest of SiteCheck will treat
+// as passing. A check that is not at the PASS level, or that carries an error,
+// is considered a failure worth retrying.
+func checkPassed(wr core.WireResult) bool {
+	return wr.Pass == core.PASS && wr.Error == ""
+}
+
+// RunCheck executes a script's check() function and returns a core.WireResult.
+//
+// The outpost does not trust a single failure: when the first attempt does not
+// pass, the check is immediately run a second time and the WireResult from that
+// second attempt is returned, pass or fail. This keeps a transient network blip
+// from being reported as a real outage for a whole check cycle, while a failure
+// that the second attempt reproduces is still reported normally.
+func RunCheck(l *lua.State, res Resource) core.WireResult {
+	return RunCheckWithRetry(l, res)
+}
+
+// RunCheckWithRetry is RunCheck under an explicit name. It attempts the check
+// once and, if that attempt does not pass, attempts it a second time. The
+// result of the second attempt is returned regardless of its outcome.
+func RunCheckWithRetry(l *lua.State, res Resource) core.WireResult {
+	wr := runCheck(l, res)
+	if checkPassed(wr) {
+		return wr
+	}
+	debugf("check %s: attempt failed (pass=%d error=%q); retrying once", res.Slug, wr.Pass, wr.Error)
+	retry := runCheck(l, res)
+	debugf("check %s: retry returned pass=%d elapsed_ms=%d error=%q", res.Slug, retry.Pass, retry.ElapsedMS, retry.Error)
+	return retry
 }
 
 // luaErrorResult builds the Lua-error WireResult for a resource, carrying the

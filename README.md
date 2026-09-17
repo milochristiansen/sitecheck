@@ -115,6 +115,11 @@ around that (probably by fixing your server).
 | `SITECHECK_LISTEN`          | `:8080`     | Listen address (server mode only)  |
 | `SITECHECK_DEFAULT_TIMEOUT` | `30`        | Check timeout (seconds)            |
 
+A check that does not pass is immediately run a second time. The result of that second attempt is what the outpost
+reports, pass or fail, so a transient network blip can't be recorded as a real outage for the whole check cycle. Only
+one retry is performed per check; a failure the second attempt reproduces is reported normally. Passing checks are not
+retried.
+
 
 ## Notifications
 
