@@ -12,6 +12,7 @@ import (
 
 	"sitecheck/checktypes/exec"
 	"sitecheck/checktypes/http"
+	"sitecheck/checktypes/tcp"
 	"sitecheck/cmd/sitecheck/db"
 	"sitecheck/core"
 )
@@ -532,5 +533,26 @@ func TestBuildResourcePageHydratesOnlyRepresentatives(t *testing.T) {
 	}
 	if page.RecentCount != similarRows {
 		t.Errorf("RecentCount = %d, want %d", page.RecentCount, similarRows)
+	}
+}
+
+// TestRemoteIPElisionIsHTTPOnly pins the CDN edge-address exception: HTTP checks
+// that differ only in RemoteIP are the same event, but TCP still treats the
+// connected address as meaningful.
+func TestRemoteIPElisionIsHTTPOnly(t *testing.T) {
+	bodyHash := func(s string) *string { h := core.ContentHash(s); return &h }
+
+	ha := http.HTTPCheck{Slug: "x", Pass: core.PASS, StatusCode: 200, URL: "https://x", RemoteIP: "104.21.17.111", BodyHash: bodyHash("body")}
+	hb := ha
+	hb.RemoteIP = "172.67.175.195"
+	if !core.Similar(ha, hb) {
+		t.Error("HTTP checks differing only in RemoteIP must be similar")
+	}
+
+	ta := tcp.TCPCheck{Slug: "x", Pass: core.PASS, Host: "x", Port: 443, RemoteIP: "104.21.17.111"}
+	tb := ta
+	tb.RemoteIP = "172.67.175.195"
+	if core.Similar(ta, tb) {
+		t.Error("TCP checks differing in RemoteIP must not be similar")
 	}
 }

@@ -57,6 +57,15 @@ type HTTPCheck struct {
 	Error          string
 }
 
+// httpElisionIgnoreFields are HTTP fields that are infrastructure noise rather
+// than resource state. RemoteIP flips between CDN edge addresses as DNS rotates;
+// two checks that differ only in which edge answered are the same event.
+var httpElisionIgnoreFields = []string{"RemoteIP"}
+
+// ElisionIgnoreFields tells core.Similar that RemoteIP must not affect elision
+// for HTTP checks. TCP and the other types keep comparing their own RemoteIP.
+func (HTTPCheck) ElisionIgnoreFields() []string { return httpElisionIgnoreFields }
+
 // HTTPPlugin implements core.CheckPlugin for HTTP checks.
 type HTTPPlugin struct{}
 

@@ -89,10 +89,21 @@ var similarIgnoreFields = map[string]bool{
 	"MaxMS":          true, // ping RTT stats — timing
 }
 
+// SimilarIgnorer is implemented by check-row types with fields that differ
+// between otherwise-identical checks but should not prevent elision. For
+// example HTTP's RemoteIP is a CDN/round-robin edge address, not resource state,
+// so it is ignored for HTTP only while TCP keeps comparing it.
+type SimilarIgnorer interface {
+	ElisionIgnoreFields() []string
+}
+
 // Similar reports whether two typed check rows are the same event apart from
 // identity/run timing. Large text fields are compared through their hash field
 // (struct tag `hash:"..."`), so callers can pass "light" rows that omit the
 // large columns. A nil hash is unknown and never matches, not even another nil.
+//
+// Types implementing SimilarIgnorer may add fields to the ignore set (see
+// HTTPCheck.ElisionIgnoreFields).
 func Similar(a, b interface{}) bool {
 	av := reflect.ValueOf(a)
 	bv := reflect.ValueOf(b)
@@ -106,10 +117,15 @@ func Similar(a, b interface{}) bool {
 			return false
 		}
 	}
+	var extraIgnore []string
+	if ig, ok := a.(SimilarIgnorer); ok {
+		extraIgnore = ig.ElisionIgnoreFields()
+	}
+
 	t := av.Type()
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
-		if similarIgnoreFields[f.Name] {
+		if similarIgnoreFields[f.Name] || containsString(extraIgnore, f.Name) {
 			continue
 		}
 		if hashField, ok := f.Tag.Lookup("hash"); ok {
@@ -134,4 +150,16 @@ func hashEqual(a, b interface{}) bool {
 	ap, aok := a.(*string)
 	bp, bok := b.(*string)
 	return aok && bok && ap != nil && bp != nil && *ap == *bp
+}
+
+// containsString reports whether list contains s. The lists involved are tiny
+// (zero or one fields), so a linear scan is cheaper than building a map per
+// comparison.
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
