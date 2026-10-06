@@ -62,11 +62,13 @@ func TestPingPluginCreateTableDDL(t *testing.T) {
 func TestPingPluginCreateIndexDDL(t *testing.T) {
 	p, _ := core.ByName("ping")
 	ddl := p.CreateIndexDDL()
-	if len(ddl) != 1 {
-		t.Fatalf("CreateIndexDDL returned %d statements, want 1", len(ddl))
+	if len(ddl) != 2 {
+		t.Fatalf("CreateIndexDDL returned %d statements, want 2", len(ddl))
 	}
-	if ddl[0][:13] != "CREATE INDEX " {
-		t.Errorf("First DDL is not a CREATE INDEX: %s", ddl[0][:50])
+	for i, d := range ddl {
+		if d[:13] != "CREATE INDEX " {
+			t.Errorf("DDL %d is not a CREATE INDEX: %s", i, d[:50])
+		}
 	}
 }
 

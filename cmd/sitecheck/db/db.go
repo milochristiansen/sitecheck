@@ -18,6 +18,17 @@ type DB struct {
 	*sql.DB
 }
 
+// hashBackfiller is implemented by check plugins that gained content-hash columns
+// and need existing rows filled in. It is optional: plugins without large fields
+// do not implement it.
+type hashBackfiller interface {
+	BackfillHashes(db *sql.DB) error
+}
+
+// contentHashMigration gates the one-time content-hash backfill so it does not
+// rescan tables on every start.
+const contentHashMigration = "content_hashes"
+
 // Open opens a SQLite database at path, enabling WAL and foreign keys. Creates parent directories if they don't exist.
 func Open(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -66,6 +77,35 @@ func (db *DB) Migrate() error {
 		PRIMARY KEY (slug, outpost_slug)
 	)`); err != nil {
 		return fmt.Errorf("migrate resource_meta: %w", err)
+	}
+
+	// One-time content-hash backfill. New rows are hashed on insert; rows written
+	// before hashing existed are filled in so they can elide again instead of
+	// forcing every old check to be hydrated and rendered individually.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		name       TEXT PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("migrate schema_migrations: %w", err)
+	}
+	var applied int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE name = ?`, contentHashMigration).Scan(&applied); err != nil {
+		return fmt.Errorf("check migration %s: %w", contentHashMigration, err)
+	}
+	if applied == 0 {
+		for _, p := range core.All() {
+			bf, ok := p.(hashBackfiller)
+			if !ok {
+				continue
+			}
+			if err := bf.BackfillHashes(db.DB); err != nil {
+				return fmt.Errorf("backfill hashes for %s: %w", p.TypeName(), err)
+			}
+		}
+		if _, err := db.Exec(`INSERT OR IGNORE INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+			contentHashMigration, time.Now().UTC().Format("2006-01-02 15:04:05")); err != nil {
+			return fmt.Errorf("record migration %s: %w", contentHashMigration, err)
+		}
 	}
 	return nil
 }

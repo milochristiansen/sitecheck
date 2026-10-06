@@ -50,6 +50,9 @@ type RenderedCheck struct {
 	BodyTemplateName string
 	Data             interface{}
 	Elided           string
+	// SourceID is the primary key of the light row this entry represents. Empty
+	// for elision markers. Used to hydrate only the rows that survive elision.
+	SourceID string
 }
 
 // OutpostResource is a summary of a resource belonging to an outpost, for the outpost detail page.
@@ -121,7 +124,6 @@ type SiteResult struct {
 	OutpostSlug string
 	OutpostName string
 	Sites       map[string]string // site name → detail level
-	History     interface{}       // typed DB check slice, populated by caller
 }
 
 // Chart windows for the detail page, hardcoded: a 24h response-time chart and a 30-day
@@ -135,10 +137,11 @@ const (
 var chartWindows = []int{chartWindow24h, chartWindow30d}
 
 // Generate renders the static site into cfg.OutputDir — one subdirectory per site (implicit
-// "default" first, extras sorted by name) — from the sorted slice of Results (each with
-// History populated by the collector). Every site has the same internal layout; the per-level
-// split lives in the card and detail templates, not the index.
-func Generate(cfg *Config, results []SiteResult) error {
+// "default" first, extras sorted by name) — from the sorted slice of Results. History is not
+// carried on Results: the src is queried lazily for exactly the data each page needs. Every
+// site has the same internal layout; the per-level split lives in the card and detail
+// templates, not the index.
+func Generate(cfg *Config, results []SiteResult, src historySource) error {
 	sites, err := planSites(cfg, results)
 	if err != nil {
 		return err
@@ -170,7 +173,7 @@ func Generate(cfg *Config, results []SiteResult) error {
 	ir.tmpl = indexTmpl
 
 	for _, site := range sites {
-		if err := generateSite(cfg, site, results, ir); err != nil {
+		if err := generateSite(cfg, site, results, src, ir); err != nil {
 			return err
 		}
 	}
@@ -178,7 +181,7 @@ func Generate(cfg *Config, results []SiteResult) error {
 }
 
 // generateSite renders one site (overview page, detail pages, and its own static/ copy).
-func generateSite(cfg *Config, site Site, results []SiteResult, ir *templateRenderer) error {
+func generateSite(cfg *Config, site Site, results []SiteResult, src historySource, ir *templateRenderer) error {
 	siteDir := filepath.Join(cfg.OutputDir, site.Name)
 	if err := os.MkdirAll(siteDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir %s: %w", siteDir, err)
@@ -201,8 +204,14 @@ func generateSite(cfg *Config, site Site, results []SiteResult, ir *templateRend
 		})
 	}
 
-	resourceCards := buildCards(resourceResults)
-	outpostCards := buildCards(outpostResults)
+	resourceCards, err := buildCards(resourceResults, src)
+	if err != nil {
+		return fmt.Errorf("build resource cards for site %s: %w", site.Name, err)
+	}
+	outpostCards, err := buildCards(outpostResults, src)
+	if err != nil {
+		return fmt.Errorf("build outpost cards for site %s: %w", site.Name, err)
+	}
 	for i := range resourceCards {
 		resourceCards[i].Level = levelFor(site.Name, resourceResults[i])
 	}
@@ -245,7 +254,10 @@ func generateSite(cfg *Config, site Site, results []SiteResult, ir *templateRend
 	resourcesDir := filepath.Join(siteDir, "resources")
 	members := append(resourceResults, outpostResults...)
 	for _, r := range members {
-		page := buildResourcePage(cfg, r)
+		page, err := buildResourcePage(cfg, r, src)
+		if err != nil {
+			return fmt.Errorf("build detail page for %s %q: %w", resultKind(r), r.Slug, err)
+		}
 		if r.CheckType == "outpost" {
 			page.Resources = outpostResources[r.Slug]
 		}
@@ -262,7 +274,11 @@ func generateSite(cfg *Config, site Site, results []SiteResult, ir *templateRend
 // card. 70 is the round number just under that bound.
 const sparklinePoints = 70
 
-func buildCards(results []SiteResult) []ResourceCard {
+// buildCards builds the overview cards for a set of results. Instead of a full
+// history slice, it pulls only the two narrow windows it needs: 24h of points for
+// the uptime figure, and the last sparklinePoints points for the sparkline. Both
+// are dropped as soon as the card is built.
+func buildCards(results []SiteResult, src historySource) ([]ResourceCard, error) {
 	cards := make([]ResourceCard, 0, len(results))
 	for _, r := range results {
 		slug := r.Slug
@@ -282,19 +298,25 @@ func buildCards(results []SiteResult) []ResourceCard {
 		if r.Err != "" && card.FailReason == "" {
 			card.FailReason = r.Err
 		}
-		if r.History != nil {
-			p, ok := core.ByName(r.CheckType)
-			if ok {
-				pts := extractPoints(r.History, p)
-				card.Uptime24h = calcUptimePct(lastNHours(pts, 24))
-				// Sparklines show the last sparklinePoints checks: a fixed count keeps the
-				// density constant regardless of check cadence.
-				card.Sparkline = Sparkline(lastN(pts, sparklinePoints), 300, 30)
+		if _, ok := src.Plugin(r.CheckType); ok {
+			since24h := time.Now().UTC().Add(-24 * time.Hour)
+			uptimePts, err := src.Points(r.CheckType, r.Slug, r.OutpostSlug, since24h, 0)
+			if err != nil {
+				return nil, fmt.Errorf("card uptime for %s/%s: %w", r.OutpostSlug, r.Slug, err)
 			}
+			card.Uptime24h = calcUptimePct(uptimePts)
+
+			// Sparklines show the last sparklinePoints checks: a fixed count keeps the
+			// density constant regardless of check cadence.
+			sparkPts, err := src.Points(r.CheckType, r.Slug, r.OutpostSlug, time.Time{}, sparklinePoints)
+			if err != nil {
+				return nil, fmt.Errorf("card sparkline for %s/%s: %w", r.OutpostSlug, r.Slug, err)
+			}
+			card.Sparkline = Sparkline(sparkPts, 300, 30)
 		}
 		cards = append(cards, card)
 	}
-	return cards
+	return cards, nil
 }
 
 func countStatuses(cards []ResourceCard) (up, degraded, down, unknown int) {
@@ -313,8 +335,10 @@ func countStatuses(cards []ResourceCard) (up, degraded, down, unknown int) {
 	return
 }
 
-// buildResourcePage constructs a ResourcePage from a single Result.
-func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
+// buildResourcePage constructs a ResourcePage from a single Result. All history
+// is fetched here, used, and dropped; only the rows that survive elision are
+// hydrated with their large text fields.
+func buildResourcePage(cfg *Config, r SiteResult, src historySource) (ResourcePage, error) {
 	slug := r.Slug
 	if r.CheckType != "outpost" {
 		slug = r.OutpostSlug + "-" + r.Slug
@@ -341,39 +365,49 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 	}
 
 	// Look up the plugin for this check type.
-	p, hasPlugin := core.ByName(r.CheckType)
+	p, hasPlugin := src.Plugin(r.CheckType)
+	if !hasPlugin {
+		return page, nil
+	}
 
-	if hasPlugin {
-		pts := extractPoints(r.History, p)
-		if len(pts) > 0 {
-			page.TotalChecks = len(pts)
-			page.AvgResponseMS, page.MinResponseMS, page.MaxResponseMS = calcRespStats(pts)
-			page.Uptime24h = calcUptimePct(lastNHours(pts, 24))
-			page.Uptime7d = calcUptimePct(lastNHours(pts, 7*24))
-			page.Uptime30d = calcUptimePct(pts)
+	// A single narrow point query feeds stats and both chart families. It carries
+	// no large text columns, so it is cheap even for a 30-day window.
+	since := time.Now().UTC().Add(-time.Duration(chartWindow30d) * time.Hour)
+	pts, err := src.Points(r.CheckType, r.Slug, r.OutpostSlug, since, 0)
+	if err != nil {
+		return page, fmt.Errorf("history points for %s/%s: %w", r.OutpostSlug, r.Slug, err)
+	}
+
+	if len(pts) > 0 {
+		page.TotalChecks = len(pts)
+		page.AvgResponseMS, page.MinResponseMS, page.MaxResponseMS = calcRespStats(pts)
+		page.Uptime24h = calcUptimePct(lastNHours(pts, 24))
+		page.Uptime7d = calcUptimePct(lastNHours(pts, 7*24))
+		page.Uptime30d = calcUptimePct(pts)
+	}
+
+	// Charts for the fixed windows. The x-axis is anchored to generation time so each
+	// chart always shows the full window. Both charts ship in two sizes (page-width
+	// and standard); CSS picks one per device. The 30d chart shows 8-hour averages.
+	page.Charts = make(map[int]template.HTML)
+	chartEnd := time.Now().UTC()
+	for _, w := range chartWindows {
+		windowPts := lastNHours(pts, w)
+		if len(windowPts) < 2 {
+			continue
 		}
-
-		// Charts for the fixed windows. The x-axis is anchored to generation time so each
-		// chart always shows the full window. Both charts ship in two sizes (page-width
-		// and standard); CSS picks one per device. The 30d chart shows 8-hour averages.
-		page.Charts = make(map[int]template.HTML)
-		chartEnd := time.Now().UTC()
-		for _, w := range chartWindows {
-			windowPts := lastNHours(pts, w)
-			if len(windowPts) < 2 {
-				continue
-			}
-			start := chartEnd.Add(-time.Duration(w) * time.Hour)
-			switch w {
-			case chartWindow24h:
-				page.Charts[w] = LineChartPair(windowPts, start, chartEnd)
-			case chartWindow30d:
-				page.Charts[w] = ThirtyDayChartPair(windowPts, start, chartEnd)
-			}
+		start := chartEnd.Add(-time.Duration(w) * time.Hour)
+		switch w {
+		case chartWindow24h:
+			page.Charts[w] = LineChartPair(windowPts, start, chartEnd)
+		case chartWindow30d:
+			page.Charts[w] = ThirtyDayChartPair(windowPts, start, chartEnd)
 		}
+	}
 
-		// Duration stats and charts (plugin-driven).
-		durPts := extractDurationPoints(r.History, p)
+	// Duration stats and charts (outpost only), derived from the same point query.
+	if r.CheckType == "outpost" {
+		durPts := durationPoints(pts)
 		if len(durPts) > 0 {
 			page.DurationAvgMS, page.DurationMinMS, page.DurationMaxMS = calcRespStats(durPts)
 			page.DurationCharts = make(map[int]template.HTML)
@@ -384,25 +418,63 @@ func buildResourcePage(cfg *Config, r SiteResult) ResourcePage {
 				}
 			}
 		}
+	}
 
-		// Latest check and recent checks via plugin.
-		if r.History != nil {
-			latest, recent, count := p.LatestRecent(r.History)
-			rowName, bodyName := p.TemplateNames()
-			if latest != nil {
-				page.LatestCheck = &RenderedCheck{
-					BodyTemplateName: bodyName,
-					Data:             latest,
-				}
+	// Latest check and recent checks. Light rows are streamed newest-first, elided
+	// as they arrive, and only the surviving representatives are hydrated.
+	rowName, bodyName := p.TemplateNames()
+	builder := newElisionBuilder(rowName, bodyName)
+	var latest *RenderedCheck
+	var seen int
+	err = src.EachRecentLight(r.CheckType, r.Slug, r.OutpostSlug, since, func(id string, row interface{}) error {
+		seen++
+		if seen == 1 {
+			latest = &RenderedCheck{BodyTemplateName: bodyName, Data: row, SourceID: id}
+			return nil
+		}
+		builder.Add(id, row)
+		return nil
+	})
+	if err != nil {
+		return page, fmt.Errorf("recent checks for %s/%s: %w", r.OutpostSlug, r.Slug, err)
+	}
+	page.LatestCheck = latest
+	page.RecentChecks = builder.Finish()
+	if seen > 0 {
+		page.RecentCount = seen - 1
+	}
+
+	if p.NeedsHydration() {
+		if page.LatestCheck != nil {
+			full, err := src.LoadFull(r.CheckType, page.LatestCheck.SourceID)
+			if err != nil {
+				return page, fmt.Errorf("hydrate latest %s/%s: %w", r.OutpostSlug, r.Slug, err)
 			}
-			if recent != nil && count > 0 {
-				page.RecentCount = count
-				page.RecentChecks = elideRecentChecks(recent, rowName, bodyName)
+			page.LatestCheck.Data = full
+		}
+		for i := range page.RecentChecks {
+			if page.RecentChecks[i].SourceID == "" {
+				continue
 			}
+			full, err := src.LoadFull(r.CheckType, page.RecentChecks[i].SourceID)
+			if err != nil {
+				return page, fmt.Errorf("hydrate recent %s/%s: %w", r.OutpostSlug, r.Slug, err)
+			}
+			page.RecentChecks[i].Data = full
 		}
 	}
 
-	return page
+	return page, nil
+}
+
+// durationPoints derives run-time points from the shared point slice. Only the
+// outpost check type consumes these.
+func durationPoints(pts []core.CheckPoint) []core.CheckPoint {
+	out := make([]core.CheckPoint, 0, len(pts))
+	for _, p := range pts {
+		out = append(out, core.CheckPoint{Pass: p.Pass, Resp: p.Duration, TS: p.TS})
+	}
+	return out
 }
 
 // templateRenderer holds a fully parsed template set so that renderCheck can close over it.
@@ -410,65 +482,107 @@ type templateRenderer struct {
 	tmpl *template.Template
 }
 
-// similarIgnoreFields are check-row fields that don't affect whether two checks are the
-// same event: row identity and the run/response timings. Every other field (pass status,
-// fail reason, URL, status code, ...) must match for checks to be elidable.
-var similarIgnoreFields = map[string]bool{
-	"ID":             true,
-	"Timestamp":      true,
-	"DurationMS":     true,
-	"ResponseTimeMS": true,
-	"MinMS":          true, // ping RTT stats — timing
-	"MaxMS":          true, // ping RTT stats — timing
-}
-
-// checksSimilar reports whether two checks of the same type are the same event apart from
-// run timing, i.e. they differ only in response or run timings.
+// checksSimilar reports whether two checks of the same type are the same event apart
+// from run timing. Large text fields are compared by hash (see core.Similar), which
+// lets the caller pass light rows that omit those columns.
 func checksSimilar(a, b interface{}) bool {
-	av := reflect.ValueOf(a)
-	bv := reflect.ValueOf(b)
-	if av.Type() != bv.Type() {
-		return false
-	}
-	t := av.Type()
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if similarIgnoreFields[f.Name] {
-			continue
-		}
-		if !reflect.DeepEqual(av.Field(i).Interface(), bv.Field(i).Interface()) {
-			return false
-		}
-	}
-	return true
+	return core.Similar(a, b)
 }
 
-// elideRecentChecks turns a newest-first slice of typed checks into renderable rows,
-// collapsing runs of checks that differ only in timing into their newest representative
-// plus an interstitial "(N similar PASS checks elided)" marker.
+// elisionBuilder collapses runs of adjacent similar checks into their newest
+// representative plus an interstitial marker. It consumes light rows one at a time,
+// so the caller never holds more than the current run plus the emitted output.
+type elisionBuilder struct {
+	rowName  string
+	bodyName string
+	have     bool
+	cur      interface{}
+	curID    string
+	curPass  int
+	runs     int
+	out      []RenderedCheck
+}
+
+func newElisionBuilder(rowName, bodyName string) *elisionBuilder {
+	return &elisionBuilder{rowName: rowName, bodyName: bodyName}
+}
+
+// Add feeds one light row (newest-first order) into the builder.
+func (b *elisionBuilder) Add(id string, row interface{}) {
+	if !b.have {
+		b.cur, b.curID, b.curPass, b.runs, b.have = row, id, passOf(row), 1, true
+		return
+	}
+	if checksSimilar(b.cur, row) {
+		b.runs++
+		return
+	}
+	b.flush()
+	b.cur, b.curID, b.curPass, b.runs, b.have = row, id, passOf(row), 1, true
+}
+
+// flush emits the current run's representative and, if the run collapsed more than
+// one check, an elision marker.
+func (b *elisionBuilder) flush() {
+	if !b.have {
+		return
+	}
+	b.out = append(b.out, RenderedCheck{
+		RowTemplateName:  b.rowName,
+		BodyTemplateName: b.bodyName,
+		Data:             b.cur,
+		SourceID:         b.curID,
+	})
+	if b.runs > 1 {
+		b.out = append(b.out, RenderedCheck{
+			Elided: fmt.Sprintf("(%d similar %s checks elided)", b.runs-1, passName(b.curPass)),
+		})
+	}
+	b.have = false
+}
+
+// Finish flushes the final run and returns the rendered rows.
+func (b *elisionBuilder) Finish() []RenderedCheck {
+	b.flush()
+	return b.out
+}
+
+// elideRecentChecks is the slice-based form of the builder, kept for tests and
+// callers that already hold a newest-first slice.
 func elideRecentChecks(checks interface{}, rowName, bodyName string) []RenderedCheck {
 	rv := reflect.ValueOf(checks)
-	out := make([]RenderedCheck, 0, rv.Len())
-	for i := 0; i < rv.Len(); {
-		j := i + 1
-		for j < rv.Len() && checksSimilar(rv.Index(i).Interface(), rv.Index(j).Interface()) {
-			j++
-		}
-		first := rv.Index(i)
-		out = append(out, RenderedCheck{
-			RowTemplateName:  rowName,
-			BodyTemplateName: bodyName,
-			Data:             first.Interface(),
-		})
-		if elided := j - i - 1; elided > 0 {
-			pass := passName(int(first.FieldByName("Pass").Int()))
-			out = append(out, RenderedCheck{
-				Elided: fmt.Sprintf("(%d similar %s checks elided)", elided, pass),
-			})
-		}
-		i = j
+	b := newElisionBuilder(rowName, bodyName)
+	for i := 0; i < rv.Len(); i++ {
+		row := rv.Index(i).Interface()
+		b.Add(rowID(row), row)
 	}
-	return out
+	return b.Finish()
+}
+
+// passOf reads the Pass field from a typed check row.
+func passOf(row interface{}) int {
+	f := reflect.ValueOf(row).FieldByName("Pass")
+	if !f.IsValid() {
+		return 0
+	}
+	return int(f.Int())
+}
+
+// rowID renders a typed check row's primary key as a string. Most check tables use
+// an integer id; exec uses a TEXT id.
+func rowID(row interface{}) string {
+	f := reflect.ValueOf(row).FieldByName("ID")
+	if !f.IsValid() {
+		return ""
+	}
+	switch f.Kind() {
+	case reflect.String:
+		return f.String()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return fmt.Sprintf("%d", f.Int())
+	default:
+		return ""
+	}
 }
 
 func (tr *templateRenderer) renderCheck(name string, data interface{}) (template.HTML, error) {

@@ -263,6 +263,38 @@ func pushSystemdResult(l *lua.State, r *SystemdResult) {
 	})
 }
 
+// QueryPoints returns narrow numeric history for sparklines, charts, and stats.
+func (p *impl) QueryPoints(db *sql.DB, slug, outpostSlug string, since time.Time, limit int) ([]core.CheckPoint, error) {
+	return core.QueryPoints(db, p.TableName(), slug, outpostSlug, since, limit)
+}
+
+// EachRecentLight streams rows newest-first. systemd rows carry no large text
+// fields, so the streamed row is already complete.
+func (p *impl) EachRecentLight(db *sql.DB, slug, outpostSlug string, since time.Time, fn func(id string, row interface{}) error) error {
+	h, err := p.QuerySince(db, slug, outpostSlug, since)
+	if err != nil {
+		return err
+	}
+	checks, ok := h.([]SystemdCheck)
+	if !ok {
+		return nil
+	}
+	for i := len(checks) - 1; i >= 0; i-- {
+		if err := fn(fmt.Sprintf("%d", checks[i].ID), checks[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LoadFull is unnecessary: systemd rows have no large fields to hydrate.
+func (p *impl) LoadFull(_ *sql.DB, id string) (interface{}, error) {
+	return nil, fmt.Errorf("systemd: row %s requires no hydration", id)
+}
+
+// NeedsHydration reports that light rows are already complete.
+func (p *impl) NeedsHydration() bool { return false }
+
 func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {
 	l.Push(func(l *lua.State) int {
 		serviceName := l.ToString(1)

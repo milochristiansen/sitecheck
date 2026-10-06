@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,7 +48,8 @@ type HTTPCheck struct {
 	ResponseTimeMS float64
 	StatusCode     int
 	URL            string
-	Body           *string
+	Body           *string `hash:"BodyHash"`
+	BodyHash       *string
 	BodySize       int64
 	TLSVersion     string
 	RemoteIP       string
@@ -79,11 +81,13 @@ func (p *HTTPPlugin) CreateTableDDL() []string {
 			url             TEXT NOT NULL,
 			body_size       INTEGER,
 			body            TEXT,
+			body_hash       TEXT,
 			tls_version     TEXT,
 			remote_ip       TEXT,
 			redirect_count  INTEGER,
 			error           TEXT
 		)`,
+		`ALTER TABLE checks_http ADD COLUMN body_hash TEXT`,
 	}
 }
 
@@ -91,6 +95,7 @@ func (p *HTTPPlugin) CreateTableDDL() []string {
 func (p *HTTPPlugin) CreateIndexDDL() []string {
 	return []string{
 		`CREATE INDEX IF NOT EXISTS idx_checks_http_slug_time ON checks_http(slug, timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_checks_http_slug_outpost_time ON checks_http(slug, outpost_slug, timestamp)`,
 	}
 }
 
@@ -110,10 +115,10 @@ func (p *HTTPPlugin) insert(db *sql.DB, slug, outpostSlug string, elapsedMS int6
 	}
 	_, err := db.Exec(
 		`INSERT INTO checks_http
-			(slug, outpost_slug, duration_ms, pass, response_time_ms, status_code, url, body, body_size, tls_version, remote_ip, redirect_count, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(slug, outpost_slug, duration_ms, pass, response_time_ms, status_code, url, body, body_hash, body_size, tls_version, remote_ip, redirect_count, error)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		slug, outpostSlug, elapsedMS, r.Pass, r.ResponseTimeMS, r.StatusCode, r.URL,
-		body, r.BodySize, r.TLSVersion, r.RemoteIP, r.RedirectCount, r.Error,
+		body, core.ContentHash(r.Body), r.BodySize, r.TLSVersion, r.RemoteIP, r.RedirectCount, r.Error,
 	)
 	if err != nil {
 		return fmt.Errorf("insert http check: %w", err)
@@ -124,9 +129,9 @@ func (p *HTTPPlugin) insert(db *sql.DB, slug, outpostSlug string, elapsedMS int6
 // InsertError inserts a minimal error row into checks_http.
 func (p *HTTPPlugin) InsertError(db *sql.DB, slug, outpostSlug string, elapsedMS int64, pass int, errMsg string) error {
 	_, err := db.Exec(
-		`INSERT INTO checks_http (slug, outpost_slug, duration_ms, pass, error, url)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		slug, outpostSlug, elapsedMS, pass, errMsg, "(error)",
+		`INSERT INTO checks_http (slug, outpost_slug, duration_ms, pass, error, url, body_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		slug, outpostSlug, elapsedMS, pass, errMsg, "(error)", core.ContentHash(""),
 	)
 	if err != nil {
 		return fmt.Errorf("insert http error check: %w", err)
@@ -139,7 +144,7 @@ func (p *HTTPPlugin) QuerySince(db *sql.DB, slug, outpostSlug string, since time
 	sinceStr := since.UTC().Format("2006-01-02 15:04:05")
 	rows, err := db.Query(
 		`SELECT id, slug, timestamp, duration_ms, pass, response_time_ms,
-			status_code, url, body, body_size, tls_version, remote_ip, redirect_count, error
+			status_code, url, body, body_hash, body_size, tls_version, remote_ip, redirect_count, error
 		FROM checks_http WHERE slug = ? AND outpost_slug = ? AND timestamp >= ? ORDER BY timestamp`,
 		slug, outpostSlug, sinceStr,
 	)
@@ -157,6 +162,7 @@ func (p *HTTPPlugin) QuerySince(db *sql.DB, slug, outpostSlug string, since time
 			statusCode  sql.NullInt64
 			url         sql.NullString
 			body        sql.NullString
+			bodyHash    sql.NullString
 			bodySize    sql.NullInt64
 			tlsVersion  sql.NullString
 			remoteIP    sql.NullString
@@ -164,7 +170,7 @@ func (p *HTTPPlugin) QuerySince(db *sql.DB, slug, outpostSlug string, since time
 			errMsg      sql.NullString
 		)
 		err := rows.Scan(&c.ID, &c.Slug, &c.Timestamp, &durationMS, &c.Pass,
-			&responseMS, &statusCode, &url, &body, &bodySize,
+			&responseMS, &statusCode, &url, &body, &bodyHash, &bodySize,
 			&tlsVersion, &remoteIP, &redirectCnt, &errMsg,
 		)
 		c.DurationMS = durationMS.Int64
@@ -173,6 +179,10 @@ func (p *HTTPPlugin) QuerySince(db *sql.DB, slug, outpostSlug string, since time
 		c.URL = url.String
 		if body.Valid {
 			c.Body = &body.String
+		}
+		if bodyHash.Valid {
+			h := bodyHash.String
+			c.BodyHash = &h
 		}
 		c.BodySize = bodySize.Int64
 		c.TLSVersion = tlsVersion.String
@@ -222,6 +232,155 @@ func (p *HTTPPlugin) LatestRecent(history interface{}) (latest, recent interface
 	}
 	return latest, reversed, n
 }
+
+// QueryPoints returns narrow numeric history for sparklines, charts, and stats.
+func (p *HTTPPlugin) QueryPoints(db *sql.DB, slug, outpostSlug string, since time.Time, limit int) ([]core.CheckPoint, error) {
+	return core.QueryPoints(db, p.TableName(), slug, outpostSlug, since, limit)
+}
+
+// EachRecentLight streams light rows (body omitted, body_hash included) newest-first.
+func (p *HTTPPlugin) EachRecentLight(db *sql.DB, slug, outpostSlug string, since time.Time, fn func(id string, row interface{}) error) error {
+	sinceStr := since.UTC().Format("2006-01-02 15:04:05")
+	rows, err := db.Query(
+		`SELECT id, slug, timestamp, duration_ms, pass, response_time_ms,
+			status_code, url, body_hash, body_size, tls_version, remote_ip, redirect_count, error
+		FROM checks_http WHERE slug = ? AND outpost_slug = ? AND timestamp >= ? ORDER BY timestamp DESC`,
+		slug, outpostSlug, sinceStr,
+	)
+	if err != nil {
+		return fmt.Errorf("query http light rows: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			c           HTTPCheck
+			durationMS  sql.NullInt64
+			responseMS  sql.NullFloat64
+			statusCode  sql.NullInt64
+			url         sql.NullString
+			bodyHash    sql.NullString
+			bodySize    sql.NullInt64
+			tlsVersion  sql.NullString
+			remoteIP    sql.NullString
+			redirectCnt sql.NullInt64
+			errMsg      sql.NullString
+		)
+		if err := rows.Scan(&c.ID, &c.Slug, &c.Timestamp, &durationMS, &c.Pass,
+			&responseMS, &statusCode, &url, &bodyHash, &bodySize,
+			&tlsVersion, &remoteIP, &redirectCnt, &errMsg,
+		); err != nil {
+			return fmt.Errorf("scan http light row: %w", err)
+		}
+		c.DurationMS = durationMS.Int64
+		c.ResponseTimeMS = responseMS.Float64
+		c.StatusCode = int(statusCode.Int64)
+		c.URL = url.String
+		if bodyHash.Valid {
+			h := bodyHash.String
+			c.BodyHash = &h
+		}
+		c.BodySize = bodySize.Int64
+		c.TLSVersion = tlsVersion.String
+		c.RemoteIP = remoteIP.String
+		c.RedirectCount = int(redirectCnt.Int64)
+		c.Error = errMsg.String
+		if err := fn(strconv.FormatInt(c.ID, 10), c); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// LoadFull returns the fully hydrated http row for a primary key.
+func (p *HTTPPlugin) LoadFull(db *sql.DB, id string) (interface{}, error) {
+	idNum, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse http check id %q: %w", id, err)
+	}
+	var (
+		c           HTTPCheck
+		durationMS  sql.NullInt64
+		responseMS  sql.NullFloat64
+		statusCode  sql.NullInt64
+		url         sql.NullString
+		body        sql.NullString
+		bodyHash    sql.NullString
+		bodySize    sql.NullInt64
+		tlsVersion  sql.NullString
+		remoteIP    sql.NullString
+		redirectCnt sql.NullInt64
+		errMsg      sql.NullString
+	)
+	err = db.QueryRow(
+		`SELECT id, slug, timestamp, duration_ms, pass, response_time_ms,
+			status_code, url, body, body_hash, body_size, tls_version, remote_ip, redirect_count, error
+		FROM checks_http WHERE id = ?`, idNum,
+	).Scan(&c.ID, &c.Slug, &c.Timestamp, &durationMS, &c.Pass, &responseMS,
+		&statusCode, &url, &body, &bodyHash, &bodySize, &tlsVersion, &remoteIP, &redirectCnt, &errMsg)
+	if err != nil {
+		return nil, fmt.Errorf("load http check %s: %w", id, err)
+	}
+	c.DurationMS = durationMS.Int64
+	c.ResponseTimeMS = responseMS.Float64
+	c.StatusCode = int(statusCode.Int64)
+	c.URL = url.String
+	if body.Valid {
+		c.Body = &body.String
+	}
+	if bodyHash.Valid {
+		h := bodyHash.String
+		c.BodyHash = &h
+	}
+	c.BodySize = bodySize.Int64
+	c.TLSVersion = tlsVersion.String
+	c.RemoteIP = remoteIP.String
+	c.RedirectCount = int(redirectCnt.Int64)
+	c.Error = errMsg.String
+	return c, nil
+}
+
+// BackfillHashes fills body_hash for rows inserted before hashing existed. It is
+// batched and idempotent: rows already carrying a hash are skipped. A NULL body is
+// hashed as the empty string, matching new inserts.
+func (p *HTTPPlugin) BackfillHashes(db *sql.DB) error {
+	const batch = 512
+	for {
+		rows, err := db.Query(
+			`SELECT id, COALESCE(body, '') FROM checks_http WHERE body_hash IS NULL LIMIT ?`, batch)
+		if err != nil {
+			return fmt.Errorf("backfill http hash query: %w", err)
+		}
+		type item struct {
+			id   int64
+			body string
+		}
+		var items []item
+		for rows.Next() {
+			var it item
+			if err := rows.Scan(&it.id, &it.body); err != nil {
+				rows.Close()
+				return fmt.Errorf("backfill http hash scan: %w", err)
+			}
+			items = append(items, it)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("backfill http hash rows: %w", err)
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		for _, it := range items {
+			if _, err := db.Exec(`UPDATE checks_http SET body_hash = ? WHERE id = ?`, core.ContentHash(it.body), it.id); err != nil {
+				return fmt.Errorf("backfill http hash %d: %w", it.id, err)
+			}
+		}
+	}
+}
+
+// NeedsHydration reports that light rows omit the response body.
+func (p *HTTPPlugin) NeedsHydration() bool { return true }
 
 // RegisterLua registers the "http_fetch" global function in the Lua state.
 func (p *HTTPPlugin) RegisterLua(l *lua.State, defaultTimeout int) {

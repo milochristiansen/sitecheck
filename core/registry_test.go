@@ -31,8 +31,16 @@ func (p *testPlugin) InsertError(_ *sql.DB, _, _ string, _ int64, _ int, _ strin
 func (p *testPlugin) QuerySince(_ *sql.DB, _, _ string, _ time.Time) (interface{}, error) {
 	return nil, nil
 }
-func (p *testPlugin) ExtractPoints(_ interface{}) []CheckPoint         { return nil }
-func (p *testPlugin) ExtractDurationPoints(_ interface{}) []CheckPoint { return nil }
+func (p *testPlugin) QueryPoints(_ *sql.DB, _, _ string, _ time.Time, _ int) ([]CheckPoint, error) {
+	return nil, nil
+}
+func (p *testPlugin) EachRecentLight(_ *sql.DB, _, _ string, _ time.Time, _ func(string, interface{}) error) error {
+	return nil
+}
+func (p *testPlugin) LoadFull(_ *sql.DB, _ string) (interface{}, error) { return nil, nil }
+func (p *testPlugin) NeedsHydration() bool                              { return false }
+func (p *testPlugin) ExtractPoints(_ interface{}) []CheckPoint          { return nil }
+func (p *testPlugin) ExtractDurationPoints(_ interface{}) []CheckPoint  { return nil }
 func (p *testPlugin) LatestRecent(_ interface{}) (latest, recent interface{}, count int) {
 	return nil, nil, 0
 }

@@ -12,6 +12,47 @@ import (
 	"sitecheck/core"
 )
 
+// fakeHistorySource is an in-memory historySource for card tests. EachRecentLight
+// and LoadFull are unused by those tests.
+type fakeHistorySource struct {
+	points map[string][]core.CheckPoint // key: checkType|slug|outpostSlug
+}
+
+func fakeKey(checkType, slug, outpostSlug string) string {
+	return checkType + "|" + slug + "|" + outpostSlug
+}
+
+func (f fakeHistorySource) Plugin(checkType string) (core.CheckPlugin, bool) {
+	return core.ByName(checkType)
+}
+
+func (f fakeHistorySource) Points(checkType, slug, outpostSlug string, since time.Time, limit int) ([]core.CheckPoint, error) {
+	pts := f.points[fakeKey(checkType, slug, outpostSlug)]
+	var out []core.CheckPoint
+	cutoff := ""
+	if !since.IsZero() {
+		cutoff = since.UTC().Format("2006-01-02 15:04:05")
+	}
+	for _, pt := range pts {
+		if cutoff != "" && pt.TS < cutoff {
+			continue
+		}
+		out = append(out, pt)
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out, nil
+}
+
+func (f fakeHistorySource) EachRecentLight(checkType, slug, outpostSlug string, since time.Time, fn func(id string, row interface{}) error) error {
+	return nil
+}
+
+func (f fakeHistorySource) LoadFull(checkType, id string) (interface{}, error) {
+	return nil, nil
+}
+
 func TestCountStatuses(t *testing.T) {
 	t.Run("empty returns all zeros", func(t *testing.T) {
 		up, degraded, down, unknown := countStatuses(nil)
@@ -241,11 +282,17 @@ func TestLastN(t *testing.T) {
 
 func TestBuildCards(t *testing.T) {
 	t.Run("empty results returns empty cards", func(t *testing.T) {
-		cards := buildCards(nil)
+		cards, err := buildCards(nil, fakeHistorySource{})
+		if err != nil {
+			t.Fatalf("buildCards(nil): %v", err)
+		}
 		if len(cards) != 0 {
 			t.Errorf("nil: got %d cards, want 0", len(cards))
 		}
-		cards = buildCards([]SiteResult{})
+		cards, err = buildCards([]SiteResult{}, fakeHistorySource{})
+		if err != nil {
+			t.Fatalf("buildCards(empty): %v", err)
+		}
 		if len(cards) != 0 {
 			t.Errorf("empty slice: got %d cards, want 0", len(cards))
 		}
@@ -255,7 +302,10 @@ func TestBuildCards(t *testing.T) {
 		results := []SiteResult{
 			{Slug: "http", Name: "HTTP Check", CheckType: "http", OutpostSlug: "main", OutpostName: "Main Outpost"},
 		}
-		cards := buildCards(results)
+		cards, err := buildCards(results, fakeHistorySource{})
+		if err != nil {
+			t.Fatalf("buildCards: %v", err)
+		}
 		if len(cards) != 1 {
 			t.Fatalf("expected 1 card, got %d", len(cards))
 		}
@@ -277,7 +327,10 @@ func TestBuildCards(t *testing.T) {
 		results := []SiteResult{
 			{Slug: "my-outpost", Name: "My Outpost", CheckType: "outpost"},
 		}
-		cards := buildCards(results)
+		cards, err := buildCards(results, fakeHistorySource{})
+		if err != nil {
+			t.Fatalf("buildCards: %v", err)
+		}
 		if len(cards) != 1 {
 			t.Fatalf("expected 1 card, got %d", len(cards))
 		}
@@ -293,7 +346,10 @@ func TestBuildCards(t *testing.T) {
 		results := []SiteResult{
 			{Slug: "http", CheckType: "http", Err: "connection refused", OutpostSlug: "main"},
 		}
-		cards := buildCards(results)
+		cards, err := buildCards(results, fakeHistorySource{})
+		if err != nil {
+			t.Fatalf("buildCards: %v", err)
+		}
 		if len(cards) != 1 {
 			t.Fatalf("expected 1 card, got %d", len(cards))
 		}
@@ -306,7 +362,10 @@ func TestBuildCards(t *testing.T) {
 		results := []SiteResult{
 			{Slug: "http", CheckType: "http", FailReason: "timeout", Err: "connection refused", OutpostSlug: "main"},
 		}
-		cards := buildCards(results)
+		cards, err := buildCards(results, fakeHistorySource{})
+		if err != nil {
+			t.Fatalf("buildCards: %v", err)
+		}
 		if len(cards) != 1 {
 			t.Fatalf("expected 1 card, got %d", len(cards))
 		}
@@ -319,7 +378,10 @@ func TestBuildCards(t *testing.T) {
 		results := []SiteResult{
 			{Slug: "http", CheckType: "http", OutpostSlug: "main"},
 		}
-		cards := buildCards(results)
+		cards, err := buildCards(results, fakeHistorySource{})
+		if err != nil {
+			t.Fatalf("buildCards: %v", err)
+		}
 		if len(cards) != 1 {
 			t.Fatalf("expected 1 card, got %d", len(cards))
 		}
@@ -335,12 +397,18 @@ func TestBuildCardsSparklineCappedToN(t *testing.T) {
 	// → sparklinePoints circles.
 	now := time.Now().UTC()
 	ts := func(h int) string { return now.Add(-time.Duration(h) * time.Hour).Format("2006-01-02 15:04:05") }
-	hist := make([]http.HTTPCheck, 80)
-	for i := range hist {
-		hist[i] = http.HTTPCheck{Timestamp: ts(80 - i), ResponseTimeMS: float64(i)}
+	pts := make([]core.CheckPoint, 80)
+	for i := range pts {
+		pts[i] = core.CheckPoint{TS: ts(80 - i), Resp: float64(i)}
 	}
-	results := []SiteResult{{Slug: "http", Name: "HTTP Check", CheckType: "http", OutpostSlug: "main", History: hist}}
-	cards := buildCards(results)
+	src := fakeHistorySource{points: map[string][]core.CheckPoint{
+		fakeKey("http", "http", "main"): pts,
+	}}
+	results := []SiteResult{{Slug: "http", Name: "HTTP Check", CheckType: "http", OutpostSlug: "main"}}
+	cards, err := buildCards(results, src)
+	if err != nil {
+		t.Fatalf("buildCards: %v", err)
+	}
 	spark := string(cards[0].Sparkline)
 	if spark == "" {
 		t.Fatal("sparkline empty, want points rendered")
@@ -438,8 +506,9 @@ func TestRenderCardIndexMixedLevels(t *testing.T) {
 }
 
 func TestChecksSimilar(t *testing.T) {
+	bodyHash := func(s string) *string { h := core.ContentHash(s); return &h }
 	mk := func(pass, code int, resp float64) http.HTTPCheck {
-		return http.HTTPCheck{Pass: pass, StatusCode: code, ResponseTimeMS: resp, Timestamp: "t", URL: "https://a.example.com", DurationMS: 1}
+		return http.HTTPCheck{Pass: pass, StatusCode: code, ResponseTimeMS: resp, Timestamp: "t", URL: "https://a.example.com", DurationMS: 1, BodyHash: bodyHash("body")}
 	}
 
 	t.Run("differs_only_in_timing_is_similar", func(t *testing.T) {
@@ -481,17 +550,39 @@ func TestChecksSimilar(t *testing.T) {
 			t.Error("pointer vs value must not be similar")
 		}
 	})
+
+	t.Run("different_content_hash_is_not_similar", func(t *testing.T) {
+		a := mk(core.PASS, 200, 100)
+		b := mk(core.PASS, 200, 100)
+		b.BodyHash = bodyHash("other body")
+		if checksSimilar(a, b) {
+			t.Error("different body hashes must not be similar")
+		}
+	})
+
+	t.Run("unknown_hash_is_not_similar", func(t *testing.T) {
+		a := mk(core.PASS, 200, 100)
+		a.BodyHash = nil
+		b := mk(core.PASS, 200, 100)
+		if checksSimilar(a, b) {
+			t.Error("nil body hash must not be similar to a known hash")
+		}
+		if checksSimilar(a, a) {
+			t.Error("nil body hash must not be similar even to itself")
+		}
+	})
 }
 
 func TestElideRecentChecks(t *testing.T) {
+	bodyHash := func() *string { h := core.ContentHash("body"); return &h }
 	// Newest-first: three similar PASS, one FAIL, two similar PASS.
 	history := []http.HTTPCheck{
-		{Timestamp: "t1", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 10},
-		{Timestamp: "t2", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 11},
-		{Timestamp: "t3", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 12},
-		{Timestamp: "t4", Pass: core.FAIL, StatusCode: 500, ResponseTimeMS: 0},
-		{Timestamp: "t5", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 9},
-		{Timestamp: "t6", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 8},
+		{Timestamp: "t1", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 10, BodyHash: bodyHash()},
+		{Timestamp: "t2", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 11, BodyHash: bodyHash()},
+		{Timestamp: "t3", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 12, BodyHash: bodyHash()},
+		{Timestamp: "t4", Pass: core.FAIL, StatusCode: 500, ResponseTimeMS: 0, BodyHash: bodyHash()},
+		{Timestamp: "t5", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 9, BodyHash: bodyHash()},
+		{Timestamp: "t6", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 8, BodyHash: bodyHash()},
 	}
 	rows := elideRecentChecks(history, "row", "body")
 	// Expect: t1 check, "(2 similar PASS checks elided)", t4 check, t5 check, "(1 similar PASS checks elided)".
@@ -520,11 +611,12 @@ func TestElideRecentChecks(t *testing.T) {
 }
 
 func TestElideRecentChecksNoElision(t *testing.T) {
+	bodyHash := func() *string { h := core.ContentHash("body"); return &h }
 	// No two adjacent checks are similar: every row is a real check, no markers.
 	history := []http.HTTPCheck{
-		{Timestamp: "t1", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 10},
-		{Timestamp: "t2", Pass: core.FAIL, StatusCode: 500, ResponseTimeMS: 0},
-		{Timestamp: "t3", Pass: core.DEGRADED, StatusCode: 200, ResponseTimeMS: 20},
+		{Timestamp: "t1", Pass: core.PASS, StatusCode: 200, ResponseTimeMS: 10, BodyHash: bodyHash()},
+		{Timestamp: "t2", Pass: core.FAIL, StatusCode: 500, ResponseTimeMS: 0, BodyHash: bodyHash()},
+		{Timestamp: "t3", Pass: core.DEGRADED, StatusCode: 200, ResponseTimeMS: 20, BodyHash: bodyHash()},
 	}
 	rows := elideRecentChecks(history, "row", "body")
 	if len(rows) != 3 {

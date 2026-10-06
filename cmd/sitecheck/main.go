@@ -100,18 +100,6 @@ func main() {
 		siteResults = append(siteResults, handleWireResult(database, sender, allOutposts, pr, seenVersions))
 	}
 
-	// Query history for the charts: the 30-day chart needs 30 days of data; retention
-	// governs how much is kept, not how much is queried.
-	since := time.Now().Add(-time.Duration(chartWindow30d) * time.Hour)
-
-	for i := range siteResults {
-		r := &siteResults[i]
-		if r.CheckType == "" {
-			continue
-		}
-		r.History = queryTypedHistory(database, r.Slug, r.OutpostSlug, r.CheckType, since)
-	}
-
 	// Sort alphabetically by slug.
 	sort.Slice(siteResults, func(i, j int) bool {
 		return siteResults[i].Slug < siteResults[j].Slug
@@ -122,8 +110,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Purge error: %v\n", err)
 	}
 
-	// Generate static site.
-	if err := Generate(cfg, siteResults); err != nil {
+	// Generate static site. History is queried lazily during generation.
+	if err := Generate(cfg, siteResults, dbSource{db: database}); err != nil {
 		fmt.Fprintf(os.Stderr, "Sitegen error: %v\n", err)
 		os.Exit(1)
 	}
@@ -291,20 +279,6 @@ func handleWireResult(database *db.DB, sender notify.Sender, outposts []OutpostD
 		OutpostName: pr.OutpostName,
 		Sites:       wr.Sites,
 	}
-}
-
-// queryTypedHistory returns the full typed DB check history for a slug+type.
-func queryTypedHistory(database *db.DB, slug, outpostSlug, checkType string, since time.Time) interface{} {
-	p, ok := core.ByName(checkType)
-	if !ok {
-		return nil
-	}
-	h, err := p.QuerySince(database.DB, slug, outpostSlug, since)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "  %-20s history query error: %v\n", slug, err)
-		return nil
-	}
-	return h
 }
 
 // insertWireResult deserializes the typed Data from a WireResult and inserts it into the appropriate DB check table.

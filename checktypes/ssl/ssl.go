@@ -96,6 +96,7 @@ func (p *impl) CreateTableDDL() []string {
 func (p *impl) CreateIndexDDL() []string {
 	return []string{
 		`CREATE INDEX IF NOT EXISTS idx_checks_ssl_slug_time ON checks_ssl(slug, timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_checks_ssl_slug_outpost_time ON checks_ssl(slug, outpost_slug, timestamp)`,
 	}
 }
 
@@ -222,6 +223,38 @@ func (p *impl) LatestRecent(history interface{}) (latest, recent interface{}, co
 // ---------------------------------------------------------------------------
 
 // RegisterLua pushes the ssl_certificate function onto the Lua state.
+// QueryPoints returns narrow numeric history for sparklines, charts, and stats.
+func (p *impl) QueryPoints(db *sql.DB, slug, outpostSlug string, since time.Time, limit int) ([]core.CheckPoint, error) {
+	return core.QueryPoints(db, p.TableName(), slug, outpostSlug, since, limit)
+}
+
+// EachRecentLight streams rows newest-first. ssl rows carry no large text
+// fields, so the streamed row is already complete.
+func (p *impl) EachRecentLight(db *sql.DB, slug, outpostSlug string, since time.Time, fn func(id string, row interface{}) error) error {
+	h, err := p.QuerySince(db, slug, outpostSlug, since)
+	if err != nil {
+		return err
+	}
+	checks, ok := h.([]SSLCheck)
+	if !ok {
+		return nil
+	}
+	for i := len(checks) - 1; i >= 0; i-- {
+		if err := fn(fmt.Sprintf("%d", checks[i].ID), checks[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LoadFull is unnecessary: ssl rows have no large fields to hydrate.
+func (p *impl) LoadFull(_ *sql.DB, id string) (interface{}, error) {
+	return nil, fmt.Errorf("ssl: row %s requires no hydration", id)
+}
+
+// NeedsHydration reports that light rows are already complete.
+func (p *impl) NeedsHydration() bool { return false }
+
 func (p *impl) RegisterLua(l *lua.State, defaultTimeout int) {
 	l.Push(func(l *lua.State) int {
 		host := l.ToString(1)

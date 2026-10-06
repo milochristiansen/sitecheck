@@ -71,6 +71,7 @@ func (impl) CreateTableDDL() []string {
 func (impl) CreateIndexDDL() []string {
 	return []string{
 		`CREATE INDEX IF NOT EXISTS idx_checks_tcp_slug_time ON checks_tcp(slug, timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_checks_tcp_slug_outpost_time ON checks_tcp(slug, outpost_slug, timestamp)`,
 	}
 }
 
@@ -181,6 +182,38 @@ func (impl) LatestRecent(history interface{}) (latest, recent interface{}, count
 	}
 	return latest, reversed, n
 }
+
+// QueryPoints returns narrow numeric history for sparklines, charts, and stats.
+func (impl) QueryPoints(db *sql.DB, slug, outpostSlug string, since time.Time, limit int) ([]core.CheckPoint, error) {
+	return core.QueryPoints(db, impl{}.TableName(), slug, outpostSlug, since, limit)
+}
+
+// EachRecentLight streams rows newest-first. tcp rows carry no large text
+// fields, so the streamed row is already complete.
+func (impl) EachRecentLight(db *sql.DB, slug, outpostSlug string, since time.Time, fn func(id string, row interface{}) error) error {
+	h, err := impl{}.QuerySince(db, slug, outpostSlug, since)
+	if err != nil {
+		return err
+	}
+	checks, ok := h.([]TCPCheck)
+	if !ok {
+		return nil
+	}
+	for i := len(checks) - 1; i >= 0; i-- {
+		if err := fn(fmt.Sprintf("%d", checks[i].ID), checks[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LoadFull is unnecessary: tcp rows have no large fields to hydrate.
+func (impl) LoadFull(_ *sql.DB, id string) (interface{}, error) {
+	return nil, fmt.Errorf("tcp: row %s requires no hydration", id)
+}
+
+// NeedsHydration reports that light rows are already complete.
+func (impl) NeedsHydration() bool { return false }
 
 func (impl) RegisterLua(l *lua.State, defaultTimeout int) {
 	l.Push(func(l *lua.State) int {

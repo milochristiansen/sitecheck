@@ -93,6 +93,7 @@ func (p *pingPlugin) CreateTableDDL() []string {
 func (p *pingPlugin) CreateIndexDDL() []string {
 	return []string{
 		`CREATE INDEX IF NOT EXISTS idx_checks_ping_slug_time ON checks_ping(slug, timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_checks_ping_slug_outpost_time ON checks_ping(slug, outpost_slug, timestamp)`,
 	}
 }
 
@@ -211,6 +212,38 @@ func (p *pingPlugin) LatestRecent(history interface{}) (latest, recent interface
 }
 
 // --- Lua registration -------------------------------------------------------
+
+// QueryPoints returns narrow numeric history for sparklines, charts, and stats.
+func (p *pingPlugin) QueryPoints(db *sql.DB, slug, outpostSlug string, since time.Time, limit int) ([]core.CheckPoint, error) {
+	return core.QueryPoints(db, p.TableName(), slug, outpostSlug, since, limit)
+}
+
+// EachRecentLight streams rows newest-first. ping rows carry no large text
+// fields, so the streamed row is already complete.
+func (p *pingPlugin) EachRecentLight(db *sql.DB, slug, outpostSlug string, since time.Time, fn func(id string, row interface{}) error) error {
+	h, err := p.QuerySince(db, slug, outpostSlug, since)
+	if err != nil {
+		return err
+	}
+	checks, ok := h.([]PingCheck)
+	if !ok {
+		return nil
+	}
+	for i := len(checks) - 1; i >= 0; i-- {
+		if err := fn(fmt.Sprintf("%d", checks[i].ID), checks[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LoadFull is unnecessary: ping rows have no large fields to hydrate.
+func (p *pingPlugin) LoadFull(_ *sql.DB, id string) (interface{}, error) {
+	return nil, fmt.Errorf("ping: row %s requires no hydration", id)
+}
+
+// NeedsHydration reports that light rows are already complete.
+func (p *pingPlugin) NeedsHydration() bool { return false }
 
 func (p *pingPlugin) RegisterLua(l *lua.State, defaultTimeout int) {
 	l.Push(func(l *lua.State) int {

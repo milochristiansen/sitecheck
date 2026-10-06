@@ -12,9 +12,10 @@ import (
 // CheckPoint is a common data point used by sparklines, line charts, and uptime
 // calculations. It extracts the fields shared by all check types.
 type CheckPoint struct {
-	Pass int
-	Resp float64
-	TS   string
+	Pass     int
+	Resp     float64
+	Duration float64 // run duration in ms; 0 for types with no duration concept
+	TS       string
 }
 
 // ResourceMeta carries the metadata fields from a resource that DispatchWireResult
@@ -44,6 +45,23 @@ type CheckPlugin interface {
 	Insert(db *sql.DB, slug, outpostSlug string, elapsedMS int64, data json.RawMessage) error
 	InsertError(db *sql.DB, slug, outpostSlug string, elapsedMS int64, pass int, errMsg string) error
 	QuerySince(db *sql.DB, slug, outpostSlug string, since time.Time) (interface{}, error)
+
+	// Memory-bounded history reads.
+	//
+	// QueryPoints reads only the narrow numeric columns used by sparklines,
+	// charts, and stats. limit <= 0 means unbounded; positive limit returns the
+	// most recent limit rows, still chronological.
+	QueryPoints(db *sql.DB, slug, outpostSlug string, since time.Time, limit int) ([]CheckPoint, error)
+	// EachRecentLight streams "light" rows (large text columns omitted, content
+	// hashes included) newest-first. The callback gets the row's primary key in
+	// string form and the typed row.
+	EachRecentLight(db *sql.DB, slug, outpostSlug string, since time.Time, fn func(id string, row interface{}) error) error
+	// LoadFull returns the fully hydrated row for a primary key. It is only
+	// required for types whose NeedsHydration is true.
+	LoadFull(db *sql.DB, id string) (interface{}, error)
+	// NeedsHydration reports whether light rows omit data that LoadFull must
+	// fetch before rendering. Types with no large fields return false.
+	NeedsHydration() bool
 
 	// Common field access for sparklines, charts, and stats.
 	ExtractPoints(history interface{}) []CheckPoint
